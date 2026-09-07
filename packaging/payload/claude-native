@@ -16,20 +16,26 @@ export BUN_JSC_useConcurrentJIT=0
 
 # Credentials.
 #
-# The binary reports itself as macOS, so it stores credentials by shelling out
-# to /usr/bin/security — the macOS Keychain CLI, which does not exist on iOS and
-# cannot be created on a rootless jailbreak (/usr/bin is on the sealed system
-# volume). The result is that `claude auth login` completes the OAuth flow, then
-# silently fails to persist anything, so the next run is logged out again.
+# Claude Code stores credentials through Bun.secrets, which cannot write on iOS,
+# so `claude auth login` signs in and then silently discards the result. It
+# reads ~/.claude/.credentials.json perfectly well though, so claude-login does
+# the OAuth flow itself and writes that file, and this refreshes the access
+# token before it expires. Without the refresh the credential dies after ~8
+# hours, which is exactly how the copied-from-desktop setup used to fail.
 #
-# CLAUDE_CODE_OAUTH_TOKEN sidesteps the store entirely. Generate a long-lived
-# token once with `claude setup-token` and drop it in the file below:
-#
-#     install -m 600 /dev/null ~/.claude/oauth-token
-#     printf '%s' 'sk-ant-oat01-...' > ~/.claude/oauth-token
-#
-# An already-exported value wins, so this never overrides a deliberate choice.
-if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ] && [ -r "$HOME/.claude/oauth-token" ]; then
+# Deliberately quiet and non-fatal: if the refresh fails, start anyway. The
+# current token may still be valid, and an expired one produces a better error
+# from Claude Code than from a wrapper.
+if [ -r "$HOME/.claude/.credentials.json" ] && [ -r /var/jb/usr/local/lib/claude-native/ccauth.py ]; then
+    /var/jb/usr/bin/python3 -c 'import sys; sys.path.insert(0, "/var/jb/usr/local/lib/claude-native"); import ccauth; ccauth.refresh_if_needed()' 2>/dev/null || true
+fi
+
+# Fallback for headless use: a long-lived token from `claude setup-token`, which
+# skips the credential store entirely. Capped at user:inference by design, so it
+# costs Remote Control -- claude-login is the better path. An already-exported
+# value always wins.
+if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ] && [ ! -r "$HOME/.claude/.credentials.json" ] \
+   && [ -r "$HOME/.claude/oauth-token" ]; then
     CLAUDE_CODE_OAUTH_TOKEN="$(tr -d ' \t\r\n' < "$HOME/.claude/oauth-token")"
     [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] && export CLAUDE_CODE_OAUTH_TOKEN
 fi

@@ -79,42 +79,52 @@ measured).
 claude-login
 ```
 
-A URL appears — open it in Safari, approve, paste the code back. The token is
-saved for you and lasts up to a year. That is the whole flow; run `claude`
-afterwards.
+A URL appears — open it in Safari, approve, paste the code back. That is the
+whole flow, and it gets the **full scope set**, so Remote Control, MCP servers
+and file upload all work.
+
+```sh
+claude-login --status     # what is stored, and when it expires
+claude-login --refresh    # force a refresh now
+claude-login --logout     # delete the stored credential
+```
 
 **Do not use `claude auth login` on iOS.** It completes the browser flow and
-then silently fails to persist anything, so the next run is logged out again,
-forever. The cause is not something this port can patch around: Claude Code
-stores credentials through `Bun.secrets`, Bun's own store compiled natively into
-the binary, which cannot write on iOS. The binary does carry a plaintext
-fallback (`~/.claude/.credentials.json`, the same file it reads happily), but it
-is skipped — the failure is classified as transient, so the code waits for a
-keychain that is never coming.
+then silently discards the result, so the next run is signed out again. Claude
+Code stores credentials through `Bun.secrets` — Bun's own store, compiled into
+the binary — which cannot write on iOS.
 
 Things that look like the cause and are not, each ruled out by measurement:
 
 | suspected | test | result |
 |---|---|---|
-| missing `/usr/bin/security` CLI | PATH shim, triggered by `logout` and a session | never invoked |
+| missing `/usr/bin/security` CLI | PATH shim, on `logout` and on a session | never invoked |
 | missing keychain entitlements | probe with the binary's exact signature | `SecItemAdd -> 0`, reads back |
 | broken `Security.framework` path | `dlopen` the patched path | OK, all `SecItem*` resolve |
 | the OAuth exchange failing | account lands in `~/.claude.json` | sign-in itself succeeds |
 
-The binary is signed with `keychain-access-groups` anyway, since that part is
-correct on its own merits, but it is not what makes sign-in work.
+But Claude Code *reads* `~/.claude/.credentials.json` perfectly well — that is
+why a credential copied from a desktop works, right up until its access token
+expires ~8 hours later and cannot be refreshed in place. So `claude-login` runs
+the OAuth flow itself, with the same scopes `claude auth login` requests, and
+writes that file; the wrapper refreshes the access token before each run.
+Everything Claude Code needs, nothing it has to write.
 
-`claude setup-token` produces a long-lived token that bypasses the credential
-store entirely through `CLAUDE_CODE_OAUTH_TOKEN`. `claude-login` runs that flow
-on a pty so its interactive UI behaves normally, captures the token from the
-output, and writes `~/.claude/oauth-token` with mode `600`. If the token cannot
-be scraped — a UI change, an unlucky terminal width — it asks you to paste it
-instead, so the command works either way.
+`claude setup-token` also works and needs no browser gymnastics, but its token
+is **capped at `user:inference` by design** — Anthropic limits long-lived tokens
+for security — which costs Remote Control. The wrapper still honours one at
+`~/.claude/oauth-token` for headless use, and an exported
+`CLAUDE_CODE_OAUTH_TOKEN` always wins, but a stored credential takes precedence.
 
-The wrapper exports `CLAUDE_CODE_OAUTH_TOKEN` from that file on every run, so
-the sign-in survives reboots and package upgrades. To sign out, delete the file.
-An already-exported `CLAUDE_CODE_OAUTH_TOKEN` always wins, so CI-style use is
-unaffected.
+### Refresh-token rotation
+
+The token endpoint issues a new refresh token on every refresh and invalidates
+the old one, so losing the replacement means being signed out. The write path is
+built for that: an exclusive lock so two concurrent starts cannot both refresh,
+`fsync` before an atomic replace so a crash cannot lose the new token, and no
+destructive step on failure — a refresh that fails leaves the credential exactly
+as it was. Unknown fields in the file are preserved rather than dropped, since
+the format is Anthropic's and not ours.
 
 ## How it works
 

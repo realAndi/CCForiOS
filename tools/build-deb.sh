@@ -84,6 +84,7 @@ install -m 755 "$ROOT/packaging/payload/libshim.dylib"      "$LIB/libshim.dylib"
 install -m 644 "$ROOT/packaging/payload/ccios_patch.py"     "$LIB/ccios_patch.py"
 install -m 644 "$ROOT/packaging/payload/shim.c"             "$LIB/shim.c"
 install -m 644 "$ROOT/packaging/payload/entitlements.plist" "$LIB/entitlements.plist"
+install -m 644 "$ROOT/packaging/payload/ccauth.py"          "$LIB/ccauth.py"
 install -m 755 "$ROOT/packaging/payload/claude-native"      "$BIN/claude-native"
 install -m 755 "$ROOT/packaging/payload/claude-login"       "$BIN/claude-login"
 

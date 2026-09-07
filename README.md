@@ -12,7 +12,7 @@ APT like any other package.
 
 | | |
 |---|---|
-| Sileo source | `https://realandi.github.io/CCForiOS/` |
+| Sileo source | `https://reallyitsandi.com/repo/` |
 | Package | `com.andi.claude-code-native` ("Claude Code (native)") |
 | Source | https://github.com/realAndi/CCForiOS |
 | Current upstream | Claude Code 2.1.263 |
@@ -20,7 +20,7 @@ APT like any other package.
 
 ## Installing
 
-Sileo → Sources → **+** → `https://realandi.github.io/CCForiOS/`, then install
+Sileo → Sources → **+** → `https://reallyitsandi.com/repo/`, then install
 **Claude Code (native)**. Then sign in — once:
 
 ```sh
@@ -48,11 +48,11 @@ it in the source line:
 
 ```sh
 sudo mkdir -p /var/jb/usr/share/keyrings
-curl -fsSL https://realandi.github.io/CCForiOS/ccforios.gpg \
-  | sudo tee /var/jb/usr/share/keyrings/ccforios.gpg >/dev/null
+curl -fsSL https://reallyitsandi.com/repo/andi.gpg \
+  | sudo tee /var/jb/usr/share/keyrings/andi.gpg >/dev/null
 
-echo 'deb [signed-by=/var/jb/usr/share/keyrings/ccforios.gpg] https://realandi.github.io/CCForiOS/ ./' \
-  | sudo tee /var/jb/etc/apt/sources.list.d/ccforios.list
+echo 'deb [signed-by=/var/jb/usr/share/keyrings/andi.gpg] https://reallyitsandi.com/repo/ ./' \
+  | sudo tee /var/jb/etc/apt/sources.list.d/andi.list
 sudo apt update && sudo apt install com.andi.claude-code-native
 ```
 
@@ -409,6 +409,23 @@ Two things deliberately not done:
 ## Updating
 
 There is no custom updater. **APT is the updater.**
+
+### Where the packages come from
+
+Two repositories, and it is worth knowing which is which:
+
+| | |
+|---|---|
+| `https://reallyitsandi.com/repo/` | the one to add — signed, and carries other packages too |
+| `https://realandi.github.io/CCForiOS/` | where this repository's CI publishes its build |
+
+The domain syncs from the Pages repo on its own six-hour schedule, verifying
+each package against the checksum the upstream index declares, and keeps the
+newest few for rollback. It only ever adds or replaces, so if Pages is
+unreachable the domain keeps serving what it already has.
+
+Adding the Pages URL directly also works and gets the same packages a little
+sooner; it just needs its own key (`ccforios.gpg`).
 
 `.github/workflows/publish.yml` runs every 6 hours (and on `workflow_dispatch`,
 and on pushes to `main` that touch `packaging/`, `tools/` or the workflow):

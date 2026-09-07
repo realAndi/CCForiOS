@@ -14,4 +14,24 @@ export DISABLE_AUTOUPDATER=1
 # out of it -> "panic: Bus error". Compiling on the mutator thread avoids it.
 export BUN_JSC_useConcurrentJIT=0
 
+# Credentials.
+#
+# The binary reports itself as macOS, so it stores credentials by shelling out
+# to /usr/bin/security — the macOS Keychain CLI, which does not exist on iOS and
+# cannot be created on a rootless jailbreak (/usr/bin is on the sealed system
+# volume). The result is that `claude auth login` completes the OAuth flow, then
+# silently fails to persist anything, so the next run is logged out again.
+#
+# CLAUDE_CODE_OAUTH_TOKEN sidesteps the store entirely. Generate a long-lived
+# token once with `claude setup-token` and drop it in the file below:
+#
+#     install -m 600 /dev/null ~/.claude/oauth-token
+#     printf '%s' 'sk-ant-oat01-...' > ~/.claude/oauth-token
+#
+# An already-exported value wins, so this never overrides a deliberate choice.
+if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ] && [ -r "$HOME/.claude/oauth-token" ]; then
+    CLAUDE_CODE_OAUTH_TOKEN="$(tr -d ' \t\r\n' < "$HOME/.claude/oauth-token")"
+    [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] && export CLAUDE_CODE_OAUTH_TOKEN
+fi
+
 exec /var/jb/usr/local/lib/claude-native/claude "$@"

@@ -62,7 +62,8 @@ def status():
 
 def logout():
     removed = False
-    for p in (ccauth.CRED, os.path.join(ccauth.HOME, ".claude", "oauth-token")):
+    for p in (ccauth.STORE, ccauth.CRED,
+              os.path.join(ccauth.HOME, ".claude", "oauth-token")):
         try:
             os.remove(p)
             print("  removed %s" % p)

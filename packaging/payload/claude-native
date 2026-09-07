@@ -26,16 +26,19 @@ export BUN_JSC_useConcurrentJIT=0
 # Deliberately quiet and non-fatal: if the refresh fails, start anyway. The
 # current token may still be valid, and an expired one produces a better error
 # from Claude Code than from a wrapper.
-if [ -r "$HOME/.claude/.credentials.json" ] && [ -r /var/jb/usr/local/lib/claude-native/ccauth.py ]; then
-    /var/jb/usr/bin/python3 -c 'import sys; sys.path.insert(0, "/var/jb/usr/local/lib/claude-native"); import ccauth; ccauth.refresh_if_needed()' 2>/dev/null || true
+# Refresh if the access token is close to expiry, then re-create
+# .credentials.json from our master copy -- Claude Code deletes its copy after
+# reading a valid one, so without this a sign-in would last exactly one run.
+if [ -r "$HOME/.claude/ccauth.json" ] || [ -r "$HOME/.claude/.credentials.json" ]; then
+    /var/jb/usr/bin/python3 -c 'import sys; sys.path.insert(0, "/var/jb/usr/local/lib/claude-native"); import ccauth; ccauth.refresh_if_needed(); ccauth.materialise()' 2>/dev/null || true
 fi
 
 # Fallback for headless use: a long-lived token from `claude setup-token`, which
 # skips the credential store entirely. Capped at user:inference by design, so it
 # costs Remote Control -- claude-login is the better path. An already-exported
 # value always wins.
-if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ] && [ ! -r "$HOME/.claude/.credentials.json" ] \
-   && [ -r "$HOME/.claude/oauth-token" ]; then
+if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ] && [ ! -r "$HOME/.claude/ccauth.json" ] \
+   && [ ! -r "$HOME/.claude/.credentials.json" ] && [ -r "$HOME/.claude/oauth-token" ]; then
     CLAUDE_CODE_OAUTH_TOKEN="$(tr -d ' \t\r\n' < "$HOME/.claude/oauth-token")"
     [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] && export CLAUDE_CODE_OAUTH_TOKEN
 fi

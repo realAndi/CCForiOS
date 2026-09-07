@@ -57,8 +57,20 @@ SCOPES = [
 ]
 
 HOME = os.path.expanduser("~")
+
+# Our master copy. Claude Code knows nothing about this path, which is the whole
+# point: it treats ~/.claude/.credentials.json as a *legacy* file, and once it
+# has read a valid credential from there it migrates it into Bun.secrets and
+# deletes the original. On iOS the write half of that silently fails and the
+# delete half succeeds, so a credential written straight to .credentials.json
+# survives exactly one run. (An invalid one is left alone -- the migration never
+# gets that far -- which is why the effect looks intermittent.)
+#
+# So we own the master, and re-materialise .credentials.json before every
+# launch. Claude Code may delete its copy as often as it likes.
+STORE = os.path.join(HOME, ".claude", "ccauth.json")
 CRED = os.path.join(HOME, ".claude", ".credentials.json")
-LOCK = os.path.join(HOME, ".claude", ".credentials.lock")
+LOCK = os.path.join(HOME, ".claude", "ccauth.lock")
 
 # Cloudflare rejects a request that does not look like the CLI (403, code 1010).
 HEADERS = {
@@ -117,24 +129,53 @@ def _to_credentials(resp, previous=None):
     return out
 
 
-def _write(creds):
-    os.makedirs(os.path.dirname(CRED), exist_ok=True)
-    tmp = CRED + ".tmp"
+def _write_atomic(path, creds):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w") as f:
         json.dump(creds, f)
         f.flush()
         os.fsync(f.fileno())          # the new refresh token must survive a crash
-    os.replace(tmp, CRED)
-    os.chmod(CRED, 0o600)
+    os.replace(tmp, path)
+    os.chmod(path, 0o600)
 
 
-def read():
+def _write(creds):
+    """Persist to the master, then publish a copy for Claude Code to read."""
+    _write_atomic(STORE, creds)
+    materialise(creds)
+
+
+def materialise(creds=None):
+    """(Re-)create .credentials.json from the master.
+
+    Called before every launch by the wrapper, because Claude Code deletes its
+    copy after migrating it. Cheap, and it makes the deletion a non-event.
+    """
+    creds = creds or _read_file(STORE)
+    if not creds:
+        return False
     try:
-        with open(CRED) as f:
+        if _read_file(CRED) == creds:
+            return False                      # already current, leave it alone
+        _write_atomic(CRED, creds)
+        return True
+    except OSError:
+        return False
+
+
+def _read_file(path):
+    try:
+        with open(path) as f:
             return json.load(f)
     except (OSError, ValueError):
         return None
+
+
+def read():
+    """The master, or a credential written before the master existed."""
+    return _read_file(STORE) or _read_file(CRED)
 
 
 def _lock():

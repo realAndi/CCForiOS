@@ -116,6 +116,20 @@ for security — which costs Remote Control. The wrapper still honours one at
 `~/.claude/oauth-token` for headless use, and an exported
 `CLAUDE_CODE_OAUTH_TOKEN` always wins, but a stored credential takes precedence.
 
+### Why the credential is stored twice
+
+Claude Code treats `~/.claude/.credentials.json` as a **legacy** path: once it
+reads a valid credential from there it migrates it into `Bun.secrets` and
+deletes the original. On iOS the write half of that silently fails and the
+delete half succeeds, so a credential written straight to that file survives
+exactly one run — which is what made a copied desktop credential look like it
+"expired". An invalid credential is left alone, because the migration never gets
+that far, which is why the effect looks intermittent.
+
+So the master copy lives at `~/.claude/ccauth.json`, a path Claude Code knows
+nothing about, and the wrapper re-creates `.credentials.json` from it before
+every launch. Claude Code can delete its copy as often as it likes.
+
 ### Refresh-token rotation
 
 The token endpoint issues a new refresh token on every refresh and invalidates

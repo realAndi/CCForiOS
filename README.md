@@ -504,6 +504,17 @@ repo/                                generated APT repo (deployed to Pages; giti
 .github/workflows/publish.yml        the 6-hourly build
 ```
 
+## License
+
+The code in this repository — the shim, the Mach-O patcher, the packaging and
+the tooling — is MIT licensed. See [LICENSE](LICENSE).
+
+That covers this project only. **Claude Code itself is Anthropic's software and
+is not licensed by this repository.** Nothing here redistributes it: the package
+is ~12 KB of patcher and downloads the official binary from Anthropic's own
+release CDN or npm at install time, so your use of Claude Code is governed by
+Anthropic's terms, exactly as it would be on any other platform.
+
 ## Known limitations
 
 * **`BUN_JSC_useConcurrentJIT=0` is load-bearing.** The wrapper sets it. Without

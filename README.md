@@ -495,7 +495,18 @@ it; see [Installing](#installing).
 
 1. Push the repo to GitHub.
 2. Settings → Pages → Source: **GitHub Actions**.
-3. Run the **build and publish repo** workflow, or wait for the 6-hour schedule.
+3. Optional, to sign it — generate a key and add it as two secrets:
+
+   ```sh
+   gpg --quick-generate-key "Your Repo <you@example.com>" rsa4096 sign never
+   FPR=$(gpg --fingerprint --with-colons "Your Repo" | awk -F: '/^fpr:/{print $10; exit}')
+   gpg --export-secret-keys --armor "$FPR" | gh secret set CCIOS_GPG_KEY --repo <owner>/CCForiOS
+   gh secret set CCIOS_GPG_KEY_ID --repo <owner>/CCForiOS --body "$FPR"
+   ```
+
+   Skip it and the repo publishes unsigned with a warning, which Sileo and Zebra
+   accept and the `apt` CLI takes with `[trusted=yes]`.
+4. Run the **build and publish repo** workflow, or wait for the 6-hour schedule.
 
 The workflow discovers its own Pages URL, so nothing needs editing for a fork.
 When rebuilding, run

@@ -1,0 +1,126 @@
+name: build and publish repo
+
+# Rebuilds the package for whatever version npm currently tags `latest` and
+# republishes the APT repo to GitHub Pages. There is no state to track: the
+# package version mirrors upstream, so Sileo only sees a new version when
+# Anthropic actually ships one. Bump packaging/revision to force a rebuild
+# (e.g. after a shim change) without waiting for upstream.
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Upstream version to build (blank = npm dist-tag latest)"
+        required: false
+  push:
+    branches: [main]
+    paths: ["packaging/**", "tools/**", ".github/workflows/publish.yml"]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      revision: ${{ steps.v.outputs.revision }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        run: |
+          set -euo pipefail
+          V="${{ github.event.inputs.version }}"
+          if [ -z "$V" ]; then
+            # Anthropic's release CDN is the canonical answer; npm's dist-tag is
+            # the same thing published a second way, used only if the CDN is
+            # unreachable.
+            V=$(curl -fsSL https://downloads.claude.ai/claude-code-releases/latest || true)
+            if ! printf '%s' "$V" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+              echo "CDN /latest unusable ('$V'), falling back to npm dist-tag"
+              V=$(curl -fsSL https://registry.npmjs.org/@anthropic-ai/claude-code \
+                  | python3 -c 'import json,sys; print(json.load(sys.stdin)["dist-tags"]["latest"])')
+            fi
+          fi
+          echo "version=$V"  >> "$GITHUB_OUTPUT"
+          echo "revision=$(cat packaging/revision)" >> "$GITHUB_OUTPUT"
+          echo "building $V-$(cat packaging/revision)"
+
+  shim:
+    # Needs the iPhoneOS SDK, so it has to be a macOS runner. The result is a
+    # 68KB dylib; the 200MB Claude Code binary is never touched here.
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      # iOS will not load unsigned code, and the runners have no ldid.
+      - name: Install ldid
+        run: brew install ldid
+      - name: Build libshim.dylib
+        run: ./tools/build-shim.sh
+      - name: Confirm it is signed
+        run: |
+          ldid -e packaging/payload/libshim.dylib >/dev/null
+          codesign -dv packaging/payload/libshim.dylib 2>&1 | grep -q CodeDirectory \
+            || { echo "shim is not signed -- iOS would refuse to load it"; exit 1; }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: libshim
+          path: packaging/payload/libshim.dylib
+          if-no-files-found: error
+
+  publish:
+    needs: [resolve, shim]
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: libshim
+          path: packaging/payload
+      - name: Install dpkg tooling
+        run: sudo apt-get update && sudo apt-get install -y dpkg-dev
+
+      # Needed before the build so we know the repo's own URL.
+      - uses: actions/configure-pages@v5
+        id: pages
+
+      - name: Build package
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_PAGES: ${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}
+        run: |
+          set -euo pipefail
+          # build-deb.sh re-runs ccios_patch.py --check against the real upstream
+          # binary and fails the build if it links a new dylib or dropped one of
+          # the symbols the shim provides -- so a broken package is never shipped.
+          ./tools/build-deb.sh "${{ needs.resolve.outputs.version }}" \
+                               "${{ needs.resolve.outputs.revision }}"
+
+      - name: Carry forward already-published versions
+        run: ./tools/fetch-published.sh "${{ steps.pages.outputs.base_url }}" 10
+
+      - name: Generate APT metadata
+        env:
+          REPO_ORIGIN: ${{ github.event.repository.name }}
+        run: |
+          cp packaging/depiction.html repo/depiction.html
+          cp packaging/index.html     repo/index.html
+          python3 tools/make-repo.py repo
+          ls -la repo repo/debs
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: repo
+      - id: deploy
+        uses: actions/deploy-pages@v4

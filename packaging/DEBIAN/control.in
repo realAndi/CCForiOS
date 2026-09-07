@@ -1,0 +1,26 @@
+Package: com.andi.claude-code-native
+Name: Claude Code (native)
+Version: @VERSION@
+Architecture: iphoneos-arm64
+Maintainer: andi <tafilajandi@gmail.com>
+Author: Anthropic (upstream) / iOS port by andi
+Section: Development
+Priority: optional
+Depends: python3, ldid, curl, tar, firmware (>= 15.0)
+Icon: https://raw.githubusercontent.com/@REPO@/main/assets/icon.png
+Depiction: https://@PAGES@/depiction.html
+Tag: role::developer
+Description: Anthropic's Claude Code CLI, native build, patched for iOS
+ The official darwin-arm64 Claude Code executable (Bun-compiled) made to run on
+ jailbroken iOS. Upstream stopped shipping a JavaScript cli.js after 2.1.112, so
+ this packages the native binary instead.
+ .
+ The binary itself is NOT redistributed here. On install this package downloads
+ the official tarball straight from the npm registry, verifies its SHA-256, and
+ patches it on device: Mach-O platform to iOS, a small shim linked in for the
+ four libSystem symbols iOS lacks, and the macOS framework dlopen paths
+ rewritten. Takes a few seconds.
+ .
+ The shim also makes JSC's JIT work, which is not optional: iOS has no MAP_JIT
+ and refuses to execute a writable page, and without JIT JavaScriptCore disables
+ SharedArrayBuffer, which Claude Code needs at startup.

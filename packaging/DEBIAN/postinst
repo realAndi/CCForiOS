@@ -1,0 +1,104 @@
+#!/var/jb/usr/bin/zsh
+# Fetch the official Claude Code binary and patch it for iOS.
+# The binary is deliberately not shipped in this package; see control.
+set -e
+[ "$1" = "configure" ] || [ -z "$1" ] || exit 0
+
+PREFIX=/var/jb
+LIB=$PREFIX/usr/local/lib/claude-native
+BIN=$PREFIX/usr/local/bin
+PATH=$PREFIX/usr/bin:$PREFIX/bin:/usr/bin:/bin:$PREFIX/usr/sbin:$PREFIX/sbin
+export PATH
+
+. "$LIB/version.env"
+
+say() { print -- "claude-code-native: $*"; }
+die() { print -u2 -- "claude-code-native: ERROR: $*"; exit 1; }
+
+sha256_of() {
+    if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1
+    else shasum -a 256 "$1" | cut -d' ' -f1; fi
+}
+
+# ~200MB binary + the download + the patched copy; ask for headroom.
+avail=$(df -k "$LIB" | tail -1 | awk '{print $4}')
+[ "${avail:-0}" -gt 700000 ] || die "need ~700MB free under $LIB, have $((avail/1024))MB"
+
+# Stage inside $LIB, not /tmp: the sandbox refuses to mmap() a dylib out of
+# /var/tmp, so the pre-install smoke test could not load libshim.dylib there.
+# Same filesystem also makes the final move atomic.
+WORK=$(mktemp -d "$LIB/.build.XXXXXX")
+trap 'rm -rf "$WORK"' EXIT INT TERM
+
+# Two independent sources for the same artifact. npm first only because its
+# tarball is ~87MB against ~199MB for the raw binary; either way the bytes we
+# end up with must hash to Anthropic's published checksum.
+fetch_from_npm() {
+    say "trying npm registry (~87MB compressed)"
+    curl -fsSL --retry 3 --retry-delay 2 "$CC_URL_NPM" -o "$WORK/pkg.tgz" || return 1
+    got=$(sha256_of "$WORK/pkg.tgz")
+    [ "$got" = "$CC_TARBALL_SHA256" ] || { say "  tarball checksum mismatch"; return 1; }
+    tar xzf "$WORK/pkg.tgz" -C "$WORK" package/claude || return 1
+    mv "$WORK/package/claude" "$WORK/claude.orig"
+    return 0
+}
+
+fetch_from_cdn() {
+    say "trying Anthropic release CDN (~199MB)"
+    curl -fsSL --retry 3 --retry-delay 2 "$CC_URL_CDN" -o "$WORK/claude.orig" || return 1
+    return 0
+}
+
+fetch_from_npm || fetch_from_cdn || die "could not download Claude Code $CC_VERSION from either source
+  npm: $CC_URL_NPM
+  cdn: $CC_URL_CDN"
+
+got=$(sha256_of "$WORK/claude.orig")
+[ "$got" = "$CC_BINARY_SHA256" ] || die "binary checksum mismatch
+  expected $CC_BINARY_SHA256
+  got      $got
+Refusing to patch a binary that is not the one this package was built against."
+say "got Claude Code $CC_VERSION, checksum verified"
+
+say "patching for iOS"
+# ccios_patch.py refuses if upstream added a dylib we have not vetted or dropped
+# a symbol the shim provides, rather than producing a broken binary.
+python3 "$LIB/ccios_patch.py" "$WORK/claude.orig" "$WORK/claude.ios" \
+    || die "patching failed -- upstream build changed shape; not installing"
+rm -f "$WORK/claude.orig" "$WORK/pkg.tgz"
+
+ldid "-S$LIB/entitlements.plist" "$WORK/claude.ios" || die "ldid signing failed"
+
+# iOS refuses to load unsigned code ("mapped file has no cdhash"), so make sure
+# the INSTALLED shim is signed before anything else -- signing only the staged
+# copy would let the smoke test pass on a layout that is not what ends up on
+# disk. Sign in place first, then stage from it, so the test is faithful.
+ldid -S "$LIB/libshim.dylib" 2>/dev/null || true
+cp "$LIB/libshim.dylib" "$WORK/libshim.dylib"
+chmod 755 "$WORK/claude.ios"
+say "verifying"
+out=$(cd "$WORK" && DISABLE_AUTOUPDATER=1 BUN_JSC_useConcurrentJIT=0 \
+      ./claude.ios --version 2>&1) || die "patched binary did not run: $out"
+case "$out" in
+    *"$CC_VERSION"*) say "verified: $out" ;;
+    *) die "unexpected --version output: $out" ;;
+esac
+
+# No rollback copy is kept: the binary is verified above *before* the installed
+# one is touched, and a reinstall can always re-fetch it. Saves ~200MB.
+mv -f "$WORK/claude.ios" "$LIB/claude"
+
+# Take over `claude`, keeping whatever was there as a rollback.
+if [ -e "$BIN/claude" ] && [ ! -L "$BIN/claude" ] && [ ! -e "$BIN/claude-legacy" ]; then
+    cp -p "$BIN/claude" "$BIN/claude-legacy"
+    say "previous claude wrapper saved as claude-legacy"
+fi
+ln -sfn "$BIN/claude-native" "$BIN/claude"
+
+# Final check against the real installed layout, not the staging directory.
+# Cheap, and it is the only thing that proves what the user will actually run.
+out=$(cd "$LIB" && DISABLE_AUTOUPDATER=1 BUN_JSC_useConcurrentJIT=0 \
+      ./claude --version 2>&1) || die "installed binary does not run: $out"
+
+say "installed $CC_VERSION -- run: claude"
+exit 0

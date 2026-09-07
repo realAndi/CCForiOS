@@ -1,0 +1,16 @@
+#!/var/jb/usr/bin/zsh
+set -e
+PREFIX=/var/jb
+LIB=$PREFIX/usr/local/lib/claude-native
+BIN=$PREFIX/usr/local/bin
+
+if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
+    # The binary is fetched at install time, so dpkg does not know about it.
+    rm -f "$LIB/claude" "$LIB/claude.previous"
+    # Hand `claude` back to whatever owned it before us.
+    if [ -L "$BIN/claude" ]; then
+        rm -f "$BIN/claude"
+        [ -e "$BIN/claude-legacy" ] && mv "$BIN/claude-legacy" "$BIN/claude" || true
+    fi
+fi
+exit 0

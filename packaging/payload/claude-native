@@ -1,0 +1,17 @@
+#!/var/jb/usr/bin/zsh
+# Claude Code, native darwin-arm64 build patched to run on iOS.
+# See ~/ccnative/LOG.md on the build host for how the binary was made.
+
+export HOME="${HOME:-/var/jb/var/mobile}"
+
+# No iOS build exists upstream, so never let it replace itself.
+export DISABLE_AUTOUPDATER=1
+
+# REQUIRED. JSC's JIT pool is flipped between RW and RX with mprotect (iOS has
+# no MAP_JIT and refuses to execute a writable page). That flip is process-wide
+# where the real pthread_jit_write_protect_np is per-thread, so a background
+# compiler thread would flip the pool to RW while the main thread is executing
+# out of it -> "panic: Bus error". Compiling on the mutator thread avoids it.
+export BUN_JSC_useConcurrentJIT=0
+
+exec /var/jb/usr/local/lib/claude-native/claude "$@"

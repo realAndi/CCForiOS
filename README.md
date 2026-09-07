@@ -21,7 +21,15 @@ APT like any other package.
 ## Installing
 
 Sileo → Sources → **+** → `https://realandi.github.io/CCForiOS/`, then install
-**Claude Code (native)**.
+**Claude Code (native)**. Then sign in — once:
+
+```sh
+claude-login
+claude
+```
+
+Use `claude-login`, **not** `claude auth login`; the latter cannot save
+credentials on iOS. See [Signing in](#signing-in) for why.
 
 Requirements:
 

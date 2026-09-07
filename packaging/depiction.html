@@ -47,6 +47,16 @@ to confirm it works, and only then installs it. Takes a few seconds and needs a
 network connection.</p>
 </div>
 
+<h2>After installing</h2>
+<div class="card">
+<p>Sign in once, then use it normally:</p>
+<p><code>claude-login</code> &nbsp;→&nbsp; sign in in Safari &nbsp;→&nbsp; <code>claude</code></p>
+<p style="margin-bottom:0">Use <code>claude-login</code>, <strong>not</strong>
+<code>claude auth login</code> — Claude Code cannot save credentials on iOS, so
+its own sign-in silently fails. This one runs the same flow with the same
+scopes and keeps it refreshed.</p>
+</div>
+
 <h2>Requires</h2>
 <ul>
   <li>A rootless jailbreak (<code>/var/jb</code>) — tested on Dopamine</li>

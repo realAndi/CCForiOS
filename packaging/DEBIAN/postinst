@@ -100,5 +100,12 @@ ln -sfn "$BIN/claude-native" "$BIN/claude"
 out=$(cd "$LIB" && DISABLE_AUTOUPDATER=1 BUN_JSC_useConcurrentJIT=0 \
       ./claude --version 2>&1) || die "installed binary does not run: $out"
 
-say "installed $CC_VERSION -- run: claude"
+if [ -r "$HOME/.claude/ccauth.json" ] || [ -r "$HOME/.claude/.credentials.json" ] \
+   || [ -r "$HOME/.claude/oauth-token" ]; then
+    say "installed $CC_VERSION -- run: claude"
+else
+    say "installed $CC_VERSION"
+    say "Sign in first:  claude-login"
+    say "  (not 'claude auth login' -- that cannot save credentials on iOS)"
+fi
 exit 0

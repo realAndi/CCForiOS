@@ -43,4 +43,13 @@ if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ] && [ ! -r "$HOME/.claude/ccauth.json" ] \
     [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] && export CLAUDE_CODE_OAUTH_TOKEN
 fi
 
+# Signed out? Claude Code will say "Please run /login", which cannot work here
+# (see above). Point at the command that does. Only when there is genuinely no
+# credential of any kind, so this never nags a working setup.
+if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ] && [ -z "$ANTHROPIC_API_KEY" ] \
+   && [ -z "$ANTHROPIC_AUTH_TOKEN" ] && [ ! -r "$HOME/.claude/ccauth.json" ] \
+   && [ ! -r "$HOME/.claude/.credentials.json" ]; then
+    print -u2 -- "claude: not signed in -- run 'claude-login' (not 'claude auth login')"
+fi
+
 exec /var/jb/usr/local/lib/claude-native/claude "$@"

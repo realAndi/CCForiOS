@@ -73,6 +73,49 @@ consecutive multi-tool sessions ran with no panic and no bus error.
 Startup is about 500 ms. A simple prompt round-trips in under 3 s (2.75 s
 measured).
 
+## Signing in
+
+```sh
+claude-login
+```
+
+A URL appears — open it in Safari, approve, paste the code back. The token is
+saved for you and lasts up to a year. That is the whole flow; run `claude`
+afterwards.
+
+**Do not use `claude auth login` on iOS.** It completes the browser flow and
+then silently fails to persist anything, so the next run is logged out again,
+forever. The cause is not something this port can patch around: Claude Code
+stores credentials through `Bun.secrets`, Bun's own store compiled natively into
+the binary, which cannot write on iOS. The binary does carry a plaintext
+fallback (`~/.claude/.credentials.json`, the same file it reads happily), but it
+is skipped — the failure is classified as transient, so the code waits for a
+keychain that is never coming.
+
+Things that look like the cause and are not, each ruled out by measurement:
+
+| suspected | test | result |
+|---|---|---|
+| missing `/usr/bin/security` CLI | PATH shim, triggered by `logout` and a session | never invoked |
+| missing keychain entitlements | probe with the binary's exact signature | `SecItemAdd -> 0`, reads back |
+| broken `Security.framework` path | `dlopen` the patched path | OK, all `SecItem*` resolve |
+| the OAuth exchange failing | account lands in `~/.claude.json` | sign-in itself succeeds |
+
+The binary is signed with `keychain-access-groups` anyway, since that part is
+correct on its own merits, but it is not what makes sign-in work.
+
+`claude setup-token` produces a long-lived token that bypasses the credential
+store entirely through `CLAUDE_CODE_OAUTH_TOKEN`. `claude-login` runs that flow
+on a pty so its interactive UI behaves normally, captures the token from the
+output, and writes `~/.claude/oauth-token` with mode `600`. If the token cannot
+be scraped — a UI change, an unlucky terminal width — it asks you to paste it
+instead, so the command works either way.
+
+The wrapper exports `CLAUDE_CODE_OAUTH_TOKEN` from that file on every run, so
+the sign-in survives reboots and package upgrades. To sign out, delete the file.
+An already-exported `CLAUDE_CODE_OAUTH_TOKEN` always wins, so CI-style use is
+unaffected.
+
 ## How it works
 
 ### What the macOS binary needs

@@ -1,0 +1,148 @@
+#!/var/jb/usr/bin/python3
+"""claude-login — sign in to Claude Code on iOS, in one command.
+
+Why this exists: Claude Code stores credentials through Bun.secrets, which on
+iOS cannot write. `claude auth login` therefore completes the browser flow and
+then silently fails to persist anything, leaving you logged out again. The
+plaintext fallback the binary carries is skipped because the failure is
+classified as transient.
+
+`claude setup-token` produces a long-lived token (up to a year) that skips the
+credential store entirely via CLAUDE_CODE_OAUTH_TOKEN. This runs that flow on a
+pty so its interactive UI works normally, then captures the token from the
+output and saves it, so nobody has to copy a secret around by hand.
+
+If the token cannot be scraped -- a UI change, an odd terminal width wrapping it
+-- it falls back to asking you to paste it. Same command either way.
+"""
+
+import os
+import pty
+import re
+import subprocess
+import sys
+
+HOME = os.path.expanduser("~")
+TOKEN_FILE = os.path.join(HOME, ".claude", "oauth-token")
+CLAUDE = "/var/jb/usr/local/bin/claude-native"
+
+ANSI = re.compile(rb"\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[()][A-B0]")
+TOKEN = re.compile(r"sk-ant-oat01-[A-Za-z0-9_-]{20,}")
+
+
+def say(msg):
+    print("\033[36m==>\033[0m %s" % msg)
+
+
+def warn(msg):
+    print("\033[33m!\033[0m %s" % msg, file=sys.stderr)
+
+
+def save(token):
+    d = os.path.dirname(TOKEN_FILE)
+    os.makedirs(d, exist_ok=True)
+    # Write via a private temp file so the token is never briefly world-readable.
+    tmp = TOKEN_FILE + ".tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(token)
+    os.replace(tmp, TOKEN_FILE)
+    os.chmod(TOKEN_FILE, 0o600)
+
+
+def run_setup_token():
+    """Run `claude setup-token` on a pty, returning everything it printed.
+
+    A pty is required: it renders an interactive UI and will not run usefully
+    with a pipe for stdout. The user interacts with it exactly as normal; we
+    only tee the output so the token can be picked out afterwards.
+    """
+    captured = bytearray()
+
+    def read(fd):
+        data = os.read(fd, 4096)
+        captured.extend(data)
+        return data
+
+    env_backup = os.environ.pop("CLAUDE_CODE_OAUTH_TOKEN", None)
+    try:
+        pty.spawn([CLAUDE, "setup-token"], read)
+    finally:
+        if env_backup is not None:
+            os.environ["CLAUDE_CODE_OAUTH_TOKEN"] = env_backup
+    return bytes(captured)
+
+
+def extract(raw):
+    """Pull the token out of the captured UI output.
+
+    Escape sequences are stripped first. The UI may wrap a long token across
+    lines inside a bordered box, so line breaks and the box characters around
+    them are removed before matching -- but spaces are kept, so the match still
+    terminates at a real word boundary rather than swallowing adjacent text.
+    """
+    text = ANSI.sub(b"", raw).decode("utf-8", "replace")
+    for ch in "\r\n│┃|╎┆┊":
+        text = text.replace(ch, "")
+    m = TOKEN.search(text)
+    return m.group(0) if m else None
+
+
+def verify():
+    env = dict(os.environ)
+    env.pop("CLAUDE_CODE_OAUTH_TOKEN", None)   # prove the file is what works
+    try:
+        out = subprocess.run([CLAUDE, "auth", "status"], capture_output=True,
+                             text=True, env=env, timeout=90).stdout
+    except Exception as e:
+        warn("could not verify: %s" % e)
+        return False
+    return '"loggedIn":true' in out.replace(" ", "")
+
+
+def main():
+    if os.path.exists(TOKEN_FILE) and "--force" not in sys.argv:
+        say("Already signed in (%s)." % TOKEN_FILE)
+        print("    Re-run with --force to replace the token, "
+              "or delete that file to sign out.")
+        return 0
+
+    if not os.path.exists(CLAUDE):
+        warn("%s not found -- is the package installed?" % CLAUDE)
+        return 1
+
+    if not sys.stdin.isatty():
+        warn("claude-login needs a terminal (run it in NewTerm, not over a pipe).")
+        return 1
+
+    say("Starting sign-in. A URL will appear -- open it in Safari, approve, "
+        "then paste the code back here.")
+    print()
+    raw = run_setup_token()
+    print()
+
+    token = extract(raw)
+    if token is None:
+        warn("Could not read the token from the output.")
+        print("    If one was shown above, paste it here; otherwise press Enter to abort.")
+        try:
+            token = input("    token: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            token = ""
+        if not TOKEN.fullmatch(token or ""):
+            warn("No valid token given. Nothing was saved.")
+            return 1
+
+    save(token)
+    say("Saved to %s (mode 600)." % TOKEN_FILE)
+
+    if verify():
+        say("Signed in. Run: claude")
+        return 0
+    warn("Token saved, but Claude Code still reports signed out.")
+    print("    Check with: claude auth status")
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

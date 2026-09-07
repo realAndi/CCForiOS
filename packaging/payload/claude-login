@@ -50,9 +50,17 @@ def status():
         print("Not signed in. Run: claude-login")
         return 1
     o = creds.get("claudeAiOauth", {})
+    meta = creds.get("ccauth") or {}
     print("Signed in.")
-    print("  plan:           %s" % (o.get("subscriptionType") or "unknown"))
-    print("  scopes:         %s" % " ".join(o.get("scopes", [])) or "none")
+    if meta.get("email"):
+        print("  account:        %s" % meta["email"])
+    if meta.get("organization"):
+        print("  organization:   %s" % meta["organization"])
+    # Only shown when the server actually told us; it is absent from a refresh
+    # response, and printing "unknown" just looks like something is wrong.
+    if o.get("subscriptionType"):
+        print("  plan:           %s" % o["subscriptionType"])
+    print("  scopes:         %s" % (" ".join(o.get("scopes", [])) or "none"))
     print("  access token:   expires in %s" % fmt_age(o.get("expiresAt")))
     print("  refresh token:  expires in %s" % fmt_age(o.get("refreshTokenExpiresAt")))
     if "user:profile" not in o.get("scopes", []):

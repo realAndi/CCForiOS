@@ -118,14 +118,28 @@ def _to_credentials(resp, previous=None):
         oauth["refreshTokenExpiresAt"] = now + int(resp["refresh_token_expires_in"]) * 1000
     if resp.get("scope"):
         oauth["scopes"] = resp["scope"].split()
+    # A refresh response carries subscription_type only sometimes; the
+    # authorization_code exchange does not carry it at all. Keep whatever we
+    # already had rather than overwriting a real value with nothing.
     acct = resp.get("account") or {}
     org = resp.get("organization") or {}
-    for key, value in (("subscriptionType", acct.get("subscription_type")
-                        or org.get("billing_type")),):
-        if value and not oauth.get(key):
-            oauth[key] = value
+    sub = acct.get("subscription_type") or org.get("billing_type")
+    if sub:
+        oauth["subscriptionType"] = sub
+
     out = dict(previous or {})
     out["claudeAiOauth"] = oauth
+
+    # Who this credential belongs to, for `claude-login --status`. Kept under
+    # our own key and stripped before publishing, so the file Claude Code reads
+    # stays exactly the shape it expects.
+    meta = dict(out.get("ccauth") or {})
+    if acct.get("email_address"):
+        meta["email"] = acct["email_address"]
+    if org.get("name"):
+        meta["organization"] = org["name"]
+    if meta:
+        out["ccauth"] = meta
     return out
 
 
@@ -156,10 +170,11 @@ def materialise(creds=None):
     creds = creds or _read_file(STORE)
     if not creds:
         return False
+    published = {k: v for k, v in creds.items() if k != "ccauth"}
     try:
-        if _read_file(CRED) == creds:
+        if _read_file(CRED) == published:
             return False                      # already current, leave it alone
-        _write_atomic(CRED, creds)
+        _write_atomic(CRED, published)
         return True
     except OSError:
         return False

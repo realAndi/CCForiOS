@@ -34,6 +34,15 @@ Requirements:
 Install takes 5–7 seconds: download, checksum, patch, sign, smoke-test, move
 into place.
 
+The repo is not GPG-signed, like most jailbreak repos. Sileo does not mind. The
+`apt` CLI does, so if you add the source by hand it needs `[trusted=yes]`:
+
+```sh
+echo 'deb [trusted=yes] https://realandi.github.io/CCForiOS/ ./' \
+  | sudo tee /var/jb/etc/apt/sources.list.d/ccforios.list
+sudo apt update && sudo apt install com.andi.claude-code-native
+```
+
 Then run `claude`. `/var/jb/usr/local/bin` is on the PATH of a *login* shell,
 which is what NewTerm gives you, but not of a non-interactive `ssh host 'cmd'`.
 Over SSH use:

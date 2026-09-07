@@ -108,3 +108,51 @@ mkdir -p "$OUT"
 DEB="$OUT/com.andi.claude-code-native_${VERSION}-${REVISION}_iphoneos-arm64.deb"
 dpkg-deb -Zxz --root-owner-group --build "$STAGE" "$DEB" >/dev/null
 echo "==> $DEB ($(du -h "$DEB" | cut -f1))"
+
+# --- has the payload changed without the revision moving? -------------------
+#
+# A package version only advances when upstream ships a new Claude Code, or when
+# packaging/revision is bumped by hand. So a change to the wrapper, the postinst,
+# ccauth.py or claude-login that forgets the bump republishes an identical
+# version -- and apt, quite correctly, offers nobody an upgrade. The fix reaches
+# no device, and every workflow run is green while it happens.
+#
+# The published repository is the only honest reference for "what does this
+# version currently mean", so compare against it rather than a lockfile that can
+# itself go stale.
+#
+# Compared by content, not .deb bytes -- an archive carries timestamps and
+# ordering that differ between builds of identical input. libshim.dylib and
+# md5sums are excluded for the same reason one step further down: a compiled,
+# ldid-signed binary is never byte-identical twice, so including it would fire
+# this guard on every single run. Its source, shim.c, ships in the package and
+# IS compared, so a real change to the shim is still caught.
+payload_digest() {
+    local deb="$1" dir
+    dir="$(mktemp -d)"
+    ( cd "$dir" && ar x "$deb" \
+      && mkdir -p x && tar xf data.tar.* -C x 2>/dev/null \
+      && tar xf control.tar.* -C x 2>/dev/null )
+    ( cd "$dir/x" && find . -type f \
+        ! -name control ! -name md5sums ! -name libshim.dylib -print0 | sort -z \
+      | xargs -0 shasum -a 256 2>/dev/null ) | shasum -a 256 | cut -d' ' -f1
+    rm -rf "$dir"
+}
+
+if [ -n "$GH_PAGES" ]; then
+    PREV="$TMP/published.deb"
+    if curl -fsSL "https://$GH_PAGES/debs/$(basename "$DEB")" -o "$PREV" 2>/dev/null; then
+        if [ "$(payload_digest "$PREV")" != "$(payload_digest "$DEB")" ]; then
+            echo
+            echo "!! $VERSION-$REVISION is already published with different content."
+            echo "   Republishing it would change nothing on anyone's device: apt sees"
+            echo "   the same version and offers no upgrade."
+            echo
+            echo "   Bump packaging/revision (currently $REVISION) and rebuild."
+            exit 1
+        fi
+        echo "    matches what is already published at this version"
+    else
+        echo "    not published yet at this version"
+    fi
+fi

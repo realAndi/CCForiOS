@@ -37,7 +37,13 @@ Requirements:
 * a network connection during install — the package does not contain Claude
   Code, it fetches it (see [What the package contains](#what-the-package-contains))
 * about 700 MB free during install, about 200 MB afterwards
-* `python3`, `ldid`, `curl`, `tar` (declared as dependencies; Sileo pulls them in)
+* `zsh`, `python3`, `ldid`, `curl`, `tar`, `coreutils` — declared as
+  dependencies, so Sileo offers to install anything missing before it installs
+  this. **Node is not needed**: the Claude Code binary is Bun-compiled and
+  self-contained, and `claude-login` uses only the Python standard library.
+  The `postinst` also checks each tool by name before doing any work, so a
+  hand-installed `.deb` fails immediately with what is missing rather than
+  part-way through a 200 MB install.
 
 Install takes 5–7 seconds: download, checksum, patch, sign, smoke-test, move
 into place.

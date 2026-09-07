@@ -35,10 +35,13 @@ grep '^Filename:' "$TMP/Packages" | awk '{print $2}' | while read -r rel; do
     fi
 done
 
-# Newest-first by mtime, drop the tail. 12KB each, so this is generous.
+# Prune by VERSION, not by mtime. Sorting by mtime looks equivalent and is not:
+# the carried-forward packages are downloaded *after* the fresh build, so they
+# get newer timestamps than it, and the newest build is the first thing pruned.
+# That silently republished stale packages while the workflow reported success.
 count=$(ls -1 "$DEBS"/*.deb 2>/dev/null | wc -l | tr -d ' ')
 if [ "$count" -gt "$KEEP" ]; then
-    ls -1t "$DEBS"/*.deb | tail -n +$((KEEP + 1)) | while read -r old; do
+    ls -1 "$DEBS"/*.deb | sort -Vr | tail -n +$((KEEP + 1)) | while read -r old; do
         echo "  - $(basename "$old") (pruned, keeping $KEEP)"
         rm -f "$old"
     done

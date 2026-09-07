@@ -1,0 +1,39 @@
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA256
+
+Origin: CCForiOS
+Label: Claude Code for iOS
+Suite: stable
+Version: 1.0
+Codename: ios
+Architectures: iphoneos-arm64
+Components: main
+Description: Native Claude Code CLI, patched to run on jailbroken iOS
+Date: Mon, 07 Sep 2026 03:27:21 UTC
+MD5Sum:
+ a362644a7400967c6e9494f3a352040a 1542 Packages
+ ba3d9581123b1be34012eedabe98ef1b 1024 Packages.bz2
+ 166bb4c7352d92be6303513ffbffe866 945 Packages.gz
+ 6be08566a149c2b3873ae753cf9fed5a 1056 Packages.xz
+SHA256:
+ 2f4b2010d0d0abcd09de37ffe3f3dfa4cdcfa228284a7f90fbbaa9fee097f5f7 1542 Packages
+ 55d8694da13a295cfcc6c9e862f7798acc7c974d6c771598eeb7f01c40ad0a58 1024 Packages.bz2
+ ba11ede711bc9017290550784b0d4fccbc9cd7d1939794d1cea704497f1ad053 945 Packages.gz
+ 10b867bf831746f4e44649f2f4304c0c90b5210075ee804fdeecf4319969d916 1056 Packages.xz
+-----BEGIN PGP SIGNATURE-----
+
+iQJPBAEBCAA5FiEE1DwZ803GaxwQ28bPRcONbqTufnkFAmqeLxkbFIAAAAAABAAO
+bWFudTIsMi41KzEuMTIsMCwzAAoJEEXDjW6k7n55YukP/iBb3opl0H34Zwt4hZ2j
+jE/6VBvLYWrK1nXv4FcdH99ohsuFdytoDmkDSnEKzmBq0SFnORlg9Z5FiFfDN6E3
+mZ1+e3aQOj6fxbU+kNMdeyiRxAZPGXcl2Znfrrg5gO6l+ac0GXEVzpD+oXxJHv12
+bg+sZ/HZ5KFyIu5KYZb1TobRpue3sq0/rx4LGEHWjaf5JC6UQU5FnER/ZFDGqxHa
+M+K1lBa+P8CEcPqPe0UHwN7V50w4DNql/YRRxspTkBYvVFe1OlLWgKnc7swHqqxh
+Z7cPrN11WM0gkTo1VD7CdiEEFCsZ/fXTWLfZ3Y4QCscVhd2hzjF/N3LCYu5vam3Q
+UQQEn2YyCcMfEOKgdHRTCsiaZvdYRuVxhRth/52gTf97+q3I7QvzGrs3qx5O8MtH
+p+Bi8vVtVhSwJV8v+snHaS7wYNhIG+s+Z+LhoXoe1wvBmO0f8TTqt+u7dskuJavB
+s123XrLweQSptQ2KdTNXz0EwJizXBur1zcXBupg8RhaLMjC778G95ovcmoNBZ9Xm
+gdMk/tDJRpK4XgLkGWAvCKm46zdcNLK+nhoIqMx9EFvFqe9APJ9c28kpEePPA7Si
+M+IksJzmF6WPkdccVvpMz93TL+sB4Ujw/0CC7cRM86F81Db6F6ReRxh9RwhFJaAF
+qxEizN+KzH5eSlyMvPslerWM
+=3od8
+-----END PGP SIGNATURE-----

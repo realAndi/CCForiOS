@@ -12,6 +12,7 @@ import gzip
 import hashlib
 import lzma
 import os
+import shutil
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -23,6 +24,46 @@ DESCRIPTION = os.environ.get(
 
 ROOT = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else "repo")
 DEBS = os.path.join(ROOT, "debs")
+
+# Signing key. In CI this is imported from the CCIOS_GPG_KEY secret; locally it
+# is whatever is in the keyring. Deliberately a different key from the one that
+# signs reallyitsandi.com: that one never leaves its machine, whereas this one
+# has to sit in GitHub Secrets so the scheduled rebuild can sign unattended.
+# Keeping them separate means a compromise of CI cannot forge the other repo.
+KEY_ID = os.environ.get("CCIOS_GPG_KEY_ID", "")
+
+
+def sign_release(root):
+    """Write InRelease (clearsigned) and Release.gpg (detached).
+
+    apt refuses a signed repository whose key it does not have, and refuses an
+    unsigned one unless the source line says [trusted=yes]. Signing plus a
+    published key removes both. Sileo and Zebra check neither.
+    """
+    if not KEY_ID or not shutil.which("gpg"):
+        print("  (unsigned — no signing key available)")
+        return
+    try:
+        subprocess.run(["gpg", "--list-secret-keys", KEY_ID],
+                       check=True, capture_output=True)
+    except subprocess.CalledProcessError:
+        print("  (unsigned — key %s not in the keyring)" % KEY_ID)
+        return
+
+    release = os.path.join(root, "Release")
+    for args, out in ((["--clearsign"], "InRelease"),
+                      (["--detach-sign", "--armor"], "Release.gpg")):
+        dst = os.path.join(root, out)
+        if os.path.exists(dst):
+            os.remove(dst)
+        subprocess.run(
+            ["gpg", "--batch", "--yes", "--pinentry-mode", "loopback",
+             "--local-user", KEY_ID, "--output", dst, *args, release],
+            check=True, capture_output=True,
+        )
+    subprocess.run(["gpg", "--output", os.path.join(root, "ccforios.gpg"),
+                    "--yes", "--export", KEY_ID], check=True, capture_output=True)
+    print("  signed: InRelease + Release.gpg (key %s)" % KEY_ID)
 
 
 def digest(path, algo):
@@ -88,6 +129,7 @@ def main():
 
     print("wrote Packages{,.gz,.bz2,.xz} and Release in %s" % ROOT)
     print("%d package(s)" % len(stanzas))
+    sign_release(ROOT)
 
 
 main()

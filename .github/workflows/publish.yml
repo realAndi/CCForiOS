@@ -110,9 +110,24 @@ jobs:
       - name: Carry forward already-published versions
         run: ./tools/fetch-published.sh "${{ steps.pages.outputs.base_url }}" 10
 
+      # Without this the repo is unsigned and apt refuses it unless the source
+      # line says [trusted=yes]. The key is specific to this repository — the
+      # one that signs reallyitsandi.com never leaves its machine.
+      - name: Import signing key
+        env:
+          CCIOS_GPG_KEY: ${{ secrets.CCIOS_GPG_KEY }}
+        run: |
+          if [ -z "$CCIOS_GPG_KEY" ]; then
+            echo "::warning::CCIOS_GPG_KEY not set — the repository will be published unsigned"
+            exit 0
+          fi
+          printf '%s\n' "$CCIOS_GPG_KEY" | gpg --batch --quiet --import
+          gpg --list-secret-keys --keyid-format=long | sed -n 's/^sec  /  key: /p'
+
       - name: Generate APT metadata
         env:
           REPO_ORIGIN: ${{ github.event.repository.name }}
+          CCIOS_GPG_KEY_ID: ${{ secrets.CCIOS_GPG_KEY_ID }}
         run: |
           cp packaging/depiction.html repo/depiction.html
           cp packaging/index.html     repo/index.html

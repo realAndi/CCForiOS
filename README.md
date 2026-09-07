@@ -34,14 +34,23 @@ Requirements:
 Install takes 5–7 seconds: download, checksum, patch, sign, smoke-test, move
 into place.
 
-The repo is not GPG-signed, like most jailbreak repos. Sileo does not mind. The
-`apt` CLI does, so if you add the source by hand it needs `[trusted=yes]`:
+Sileo and Zebra do not check repository signatures, so that is all they need.
+The `apt` CLI does check. The repo is signed, so install the key once and name
+it in the source line:
 
 ```sh
-echo 'deb [trusted=yes] https://realandi.github.io/CCForiOS/ ./' \
+sudo mkdir -p /var/jb/usr/share/keyrings
+curl -fsSL https://realandi.github.io/CCForiOS/ccforios.gpg \
+  | sudo tee /var/jb/usr/share/keyrings/ccforios.gpg >/dev/null
+
+echo 'deb [signed-by=/var/jb/usr/share/keyrings/ccforios.gpg] https://realandi.github.io/CCForiOS/ ./' \
   | sudo tee /var/jb/etc/apt/sources.list.d/ccforios.list
 sudo apt update && sudo apt install com.andi.claude-code-native
 ```
+
+The key goes in `usr/share/keyrings`, not `/var/jb/etc/apt/trusted.gpg.d/`: a
+key in the global store can validate *any* repository apt sees, whereas
+`signed-by=` limits it to this one.
 
 Then run `claude`. `/var/jb/usr/local/bin` is on the PATH of a *login* shell,
 which is what NewTerm gives you, but not of a non-interactive `ssh host 'cmd'`.
@@ -398,6 +407,23 @@ shimming); or the Mach-O header running out of slack for the added
 `LC_LOAD_DYLIB` — see [Known limitations](#known-limitations). Fix `shim.c` /
 `ccios_patch.py`, bump `packaging/revision`, push.
 
+### Signing
+
+The published `Release` is signed into `InRelease` and `Release.gpg`, and the
+public key is served at
+[`ccforios.gpg`](https://realandi.github.io/CCForiOS/ccforios.gpg).
+
+The signing happens in the Action, so the private key lives in the
+`CCIOS_GPG_KEY` repository secret (`CCIOS_GPG_KEY_ID` names it). That is
+unavoidable for a repository that rebuilds unattended, and it is why this key is
+**not** the one that signs reallyitsandi.com — that key never leaves a local
+machine, so a compromise of CI here cannot forge packages there. Rotating this
+one means generating a new pair, replacing both secrets, and republishing;
+anyone who installed the old key has to fetch the new one.
+
+If the secret is missing the workflow does not fail — it publishes unsigned and
+emits a warning, since an unsigned repository still works for Sileo and Zebra.
+
 ## Building it yourself
 
 ### Prerequisites
@@ -461,7 +487,9 @@ sudo apt install com.andi.claude-code-native
 claude --version
 ```
 
-`[trusted=yes]` is needed because the repo is not GPG-signed.
+`[trusted=yes]` here because a local test build is unsigned — the signing key
+lives in CI, not on your machine. The published repo is signed and does not need
+it; see [Installing](#installing).
 
 ### Publishing your own fork
 

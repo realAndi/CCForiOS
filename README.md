@@ -516,6 +516,22 @@ anyone who installed the old key has to fetch the new one.
 If the secret is missing the workflow does not fail — it publishes unsigned and
 emits a warning, since an unsigned repository still works for Sileo and Zebra.
 
+### `claude doctor` warnings
+
+`doctor` reports five warnings on a healthy install. Four come from it expecting
+the official native installer's layout — `~/.local/bin/claude` on `PATH`, and an
+`installMethod` recorded in config — which a dpkg install does not use. The
+fifth is the keychain probe described above. All are cosmetic.
+
+**Do not run `claude install`**, which those warnings suggest as the fix. It
+would replace the patched binary with an unpatched macOS one that cannot load on
+iOS. If it ever happens, reinstall the package: the postinst re-fetches and
+re-patches from scratch.
+
+They are left alone deliberately. Recording an `installMethod` would invite
+Claude Code to manage — and overwrite — the binary it thinks it installed, and
+five lines of noise are a better trade than that.
+
 ## Building it yourself
 
 ### Prerequisites

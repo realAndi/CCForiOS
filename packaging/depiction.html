@@ -89,5 +89,9 @@ signs in and then cannot save the result on iOS, so it lands back at signed-out.
       wrapper sets <code>BUN_JSC_useConcurrentJIT=0</code>, which this requires.</li>
   <li>Features needing macOS-only frameworks (screenshots, webview) will not
       work.</li>
+  <li><code>claude doctor</code> shows a few warnings about
+      <code>~/.local/bin</code> and the keychain. They are cosmetic — but do not
+      run <code>claude install</code> as they suggest, since that would replace
+      the patched binary with one that cannot run on iOS.</li>
 </ul>
 </div>

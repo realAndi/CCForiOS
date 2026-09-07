@@ -8,7 +8,7 @@ Section: Development
 Priority: optional
 Depends: python3, ldid, curl, tar, firmware (>= 15.0)
 Icon: https://raw.githubusercontent.com/@REPO@/main/assets/icon.png
-Depiction: https://reallyitsandi.com/repo/depiction.html
+Depiction: https://@PAGES@/depiction.html
 Tag: role::developer
 Description: Anthropic's Claude Code CLI, native build, patched for iOS
  The official darwin-arm64 Claude Code executable (Bun-compiled) made to run on

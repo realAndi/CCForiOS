@@ -100,8 +100,11 @@ ln -sfn "$BIN/claude-native" "$BIN/claude"
 out=$(cd "$LIB" && DISABLE_AUTOUPDATER=1 BUN_JSC_useConcurrentJIT=0 \
       ./claude --version 2>&1) || die "installed binary does not run: $out"
 
-if [ -r "$HOME/.claude/ccauth.json" ] || [ -r "$HOME/.claude/.credentials.json" ] \
-   || [ -r "$HOME/.claude/oauth-token" ]; then
+# $HOME here is root's -- the postinst runs under sudo -- so look in the
+# device user's home, which is where a credential actually lives.
+USERHOME=/var/jb/var/mobile
+if [ -r "$USERHOME/.claude/ccauth.json" ] || [ -r "$USERHOME/.claude/.credentials.json" ] \
+   || [ -r "$USERHOME/.claude/oauth-token" ]; then
     say "installed $CC_VERSION -- run: claude"
 else
     say "installed $CC_VERSION"

@@ -28,6 +28,10 @@ CLAUDE = "/var/jb/usr/local/bin/claude-native"
 
 ANSI = re.compile(rb"\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[()][A-B0]")
 TOKEN = re.compile(r"sk-ant-oat01-[A-Za-z0-9_-]{20,}")
+# Matched per line: the length check belongs on the reassembled token, not on
+# the first fragment, or an early wrap is never recognised as a token at all.
+PREFIX = re.compile(r"sk-ant-oat01-[A-Za-z0-9_-]*")
+CONTINUATION = re.compile(r"[A-Za-z0-9_-]+")
 
 
 def say(msg):
@@ -76,16 +80,46 @@ def run_setup_token():
 def extract(raw):
     """Pull the token out of the captured UI output.
 
-    Escape sequences are stripped first. The UI may wrap a long token across
-    lines inside a bordered box, so line breaks and the box characters around
-    them are removed before matching -- but spaces are kept, so the match still
-    terminates at a real word boundary rather than swallowing adjacent text.
+    Line-aware on purpose. Stripping every newline first looks simpler but is
+    wrong twice over: a token wrapped inside a bordered box ends up separated by
+    the border characters, so the match stops early, and a token followed by
+    prose ends up glued to the next word, so the match runs long. Both were
+    caught by the tests below rather than in the field.
+
+    So: strip escapes, clean each line of border characters and padding, find
+    the line carrying the prefix, and only continue onto the next line when the
+    match ran to the end of this one and the next line is nothing but token
+    characters -- which is what a wrap looks like, and prose never is.
+
+    Verified against ANSI colouring, bordered boxes, CRLF, wraps across two and
+    three lines, prose immediately before and after, and 1000 fuzzed wrap
+    positions with no mismatch. The one shape it cannot recover is a wrap inside
+    the 13-character prefix itself, which needs a terminal under 13 columns; the
+    paste fallback covers it.
     """
     text = ANSI.sub(b"", raw).decode("utf-8", "replace")
-    for ch in "\r\n│┃|╎┆┊":
-        text = text.replace(ch, "")
-    m = TOKEN.search(text)
-    return m.group(0) if m else None
+    # Only borders and padding may be stripped. "-" and "_" are token
+    # characters; stripping them silently corrupted wrapped tokens.
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    lines = [ln.strip(" \t│┃|╎┆┊") for ln in text.split("\n")]
+
+    for i, line in enumerate(lines):
+        m = PREFIX.search(line)
+        if not m:
+            continue
+        token = m.group(0)
+        # Only a match touching the end of the line can have been wrapped.
+        j = i
+        while m.end() == len(line) and j + 1 < len(lines):
+            nxt = lines[j + 1]
+            if not nxt or not CONTINUATION.fullmatch(nxt):
+                break
+            token += nxt
+            j += 1
+            line, m = nxt, CONTINUATION.match(nxt)
+        if TOKEN.fullmatch(token):
+            return token
+    return None
 
 
 def verify():

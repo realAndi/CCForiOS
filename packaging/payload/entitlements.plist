@@ -22,5 +22,18 @@
     <true/>
     <key>com.apple.security.cs.disable-library-validation</key>
     <true/>
+    <!-- Credential storage. Claude Code dlopen()s Security.framework and stores
+         credentials with SecItemAdd/kSecClassGenericPassword. On iOS that call
+         returns -34018 (errSecMissingEntitlement) without a keychain group, so
+         `claude auth login` completed and then silently failed to persist,
+         leaving the next run logged out. With these two the item is written and
+         read back cleanly (verified on device). The group is named after this
+         package, so it is scoped to it and shared with nothing else. -->
+    <key>application-identifier</key>
+    <string>com.andi.claude-code-native</string>
+    <key>keychain-access-groups</key>
+    <array>
+        <string>com.andi.claude-code-native</string>
+    </array>
 </dict>
 </plist>

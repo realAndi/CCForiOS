@@ -1,10 +1,17 @@
 name: build and publish repo
 
-# Rebuilds the package for whatever version npm currently tags `latest` and
+# Rebuilds the package for whatever Claude Code Anthropic currently ships and
 # republishes the APT repo to GitHub Pages. There is no state to track: the
 # package version mirrors upstream, so Sileo only sees a new version when
 # Anthropic actually ships one. Bump packaging/revision to force a rebuild
-# (e.g. after a shim change) without waiting for upstream.
+# (e.g. after a wrapper change) without waiting for upstream.
+#
+# The orchestration lives in realAndi/ios-port-ci and is shared with the other
+# ports, so a change there -- a deprecated action, a new hardening step --
+# reaches all of them at once instead of being applied N times and forgotten in
+# the N+1th. This repository supplies only what is specific to Claude Code: the
+# three scripts in tools/ and everything in packaging/. See that repo's
+# CONTRACT.md.
 
 on:
   schedule:
@@ -12,130 +19,51 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Upstream version to build (blank = npm dist-tag latest)"
+        description: "Upstream version to build (blank = whatever Anthropic ships)"
         required: false
   push:
     branches: [main]
     paths: ["packaging/**", "tools/**", ".github/workflows/publish.yml"]
 
+# The reusable workflow needs these, and a caller cannot grant more than it has.
 permissions:
   contents: read
   pages: write
   id-token: write
 
-concurrency:
-  group: pages
-  cancel-in-progress: false
-
 jobs:
-  resolve:
-    runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.v.outputs.version }}
-      revision: ${{ steps.v.outputs.revision }}
-    steps:
-      - uses: actions/checkout@v4
-      - id: v
-        run: |
-          set -euo pipefail
-          V="${{ github.event.inputs.version }}"
-          if [ -z "$V" ]; then
-            # Anthropic's release CDN is the canonical answer; npm's dist-tag is
-            # the same thing published a second way, used only if the CDN is
-            # unreachable.
-            V=$(curl -fsSL https://downloads.claude.ai/claude-code-releases/latest || true)
-            if ! printf '%s' "$V" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-              echo "CDN /latest unusable ('$V'), falling back to npm dist-tag"
-              V=$(curl -fsSL https://registry.npmjs.org/@anthropic-ai/claude-code \
-                  | python3 -c 'import json,sys; print(json.load(sys.stdin)["dist-tags"]["latest"])')
-            fi
-          fi
-          echo "version=$V"  >> "$GITHUB_OUTPUT"
-          echo "revision=$(cat packaging/revision)" >> "$GITHUB_OUTPUT"
-          echo "building $V-$(cat packaging/revision)"
-
-  shim:
-    # Needs the iPhoneOS SDK, so it has to be a macOS runner. The result is a
-    # 68KB dylib; the 200MB Claude Code binary is never touched here.
-    runs-on: macos-14
-    steps:
-      - uses: actions/checkout@v4
-      # iOS will not load unsigned code, and the runners have no ldid.
-      - name: Install ldid
-        run: brew install ldid
-      - name: Build libshim.dylib
-        run: ./tools/build-shim.sh
-      - name: Confirm it is signed
-        run: |
-          ldid -e packaging/payload/libshim.dylib >/dev/null
-          codesign -dv packaging/payload/libshim.dylib 2>&1 | grep -q CodeDirectory \
-            || { echo "shim is not signed -- iOS would refuse to load it"; exit 1; }
-      - uses: actions/upload-artifact@v4
-        with:
-          name: libshim
-          path: packaging/payload/libshim.dylib
-          if-no-files-found: error
-
+  # A job that calls a reusable workflow is only `uses:`/`with:`/`secrets:` --
+  # no steps of its own -- so everything below is inputs.
   publish:
-    needs: [resolve, shim]
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with:
-          name: libshim
-          path: packaging/payload
-      - name: Install dpkg tooling
-        run: sudo apt-get update && sudo apt-get install -y dpkg-dev
-
-      # Needed before the build so we know the repo's own URL.
-      - uses: actions/configure-pages@v5
-        id: pages
-
-      - name: Build package
-        env:
-          GH_REPO: ${{ github.repository }}
-          GH_PAGES: ${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}
-        run: |
-          set -euo pipefail
-          # build-deb.sh re-runs ccios_patch.py --check against the real upstream
-          # binary and fails the build if it links a new dylib or dropped one of
-          # the symbols the shim provides -- so a broken package is never shipped.
-          ./tools/build-deb.sh "${{ needs.resolve.outputs.version }}" \
-                               "${{ needs.resolve.outputs.revision }}"
-
-      - name: Carry forward already-published versions
-        run: ./tools/fetch-published.sh "${{ steps.pages.outputs.base_url }}" 10
-
-      # Without this the repo is unsigned and apt refuses it unless the source
-      # line says [trusted=yes]. The key is specific to this repository — the
-      # one that signs reallyitsandi.com never leaves its machine.
-      - name: Import signing key
-        env:
-          CCIOS_GPG_KEY: ${{ secrets.CCIOS_GPG_KEY }}
-        run: |
-          if [ -z "$CCIOS_GPG_KEY" ]; then
-            echo "::warning::CCIOS_GPG_KEY not set — the repository will be published unsigned"
-            exit 0
-          fi
-          printf '%s\n' "$CCIOS_GPG_KEY" | gpg --batch --quiet --import
-          gpg --list-secret-keys --keyid-format=long | sed -n 's/^sec  /  key: /p'
-
-      - name: Generate APT metadata
-        env:
-          REPO_ORIGIN: ${{ github.event.repository.name }}
-          CCIOS_GPG_KEY_ID: ${{ secrets.CCIOS_GPG_KEY_ID }}
-        run: |
-          cp packaging/depiction.html repo/depiction.html
-          cp packaging/index.html     repo/index.html
-          python3 tools/make-repo.py repo
-          ls -la repo repo/debs
-
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: repo
-      - id: deploy
-        uses: actions/deploy-pages@v4
+    uses: realAndi/ios-port-ci/.github/workflows/publish.yml@v1
+    with:
+      package: com.andi.claude-code-native
+      # Written into Release, and what Sileo displays. The shared make-repo.py
+      # has generic defaults, so omitting these would quietly change the
+      # published index out from under anyone mirroring it.
+      origin: CCForiOS
+      label: Claude Code for iOS
+      description: Native Claude Code CLI, patched to run on jailbroken iOS
+      # build-shim.sh signs libshim.dylib with ldid, and iOS will not load an
+      # unsigned dylib. No Go anywhere in this port -- the shim is built with
+      # `xcrun --sdk iphoneos clang` -- so go-version stays unset rather than
+      # installing a toolchain nothing here uses.
+      brew-packages: ldid
+      # Keeps the published key at the URL README.md links. The default is
+      # key.gpg, which would rot that link and break anyone's signed-by=.
+      key-file: ccforios.gpg
+      version: ${{ inputs.version || '' }}
+      # Narrowed from the default of the whole directory: everything else in
+      # packaging/payload/ is committed source the publish job already has from
+      # its own checkout, and the default would also sweep up a stray
+      # __pycache__/ from the --check run.
+      payload-paths: |
+        packaging/payload/libshim.dylib
+        packaging/payload/PAYLOAD.version
+    secrets:
+      # Its own key, not the one that signs reallyitsandi.com and not gh-port's,
+      # so a compromise of this repository's CI cannot forge packages for the
+      # others. reallyitsandi.com pins this fingerprint and refuses an index it
+      # cannot verify, so the secret names here must not change.
+      GPG_KEY: ${{ secrets.CCIOS_GPG_KEY }}
+      GPG_KEY_ID: ${{ secrets.CCIOS_GPG_KEY_ID }}

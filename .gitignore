@@ -8,3 +8,7 @@ repo/index.html
 repo/depiction.html
 *.bak
 .DS_Store
+
+# Cloned by tools/ci.sh; build artifact written by tools/build-payload.sh.
+.ci/
+packaging/payload/PAYLOAD.version

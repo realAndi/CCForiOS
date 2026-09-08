@@ -1,7 +1,20 @@
 #!/usr/bin/env bash
-# Assemble the .deb for a given upstream Claude Code version.
+# Assemble the .deb from a payload already built by tools/build-payload.sh.
 #
-#   tools/build-deb.sh 2.1.263 [revision]      (blank version = current latest)
+#   tools/build-deb.sh [revision]
+#
+# The version comes from packaging/payload/PAYLOAD.version, which
+# build-payload.sh writes, so the two cannot disagree about what was built.
+#
+# Split deliberately: build-payload.sh needs macOS (Xcode's iPhoneOS SDK, ldid),
+# build-deb.sh needs dpkg-deb. In CI they are different runners and the shim
+# moves between them as an artifact.
+#
+# The two-channel download below stays on this side of that split on purpose.
+# Fetching an 87 MB tarball and hashing it needs no iPhoneOS SDK, and the
+# checksums it produces are consumed by version.env, which this script writes --
+# so moving it to macOS would buy nothing and would put the slow, network-heavy
+# step on the expensive runner.
 #
 # The upstream binary is NOT packaged. We fetch it here only to confirm it is
 # still patchable and to record the checksums the postinst will re-verify on the
@@ -17,26 +30,30 @@
 # publish the public key over an authenticated channel we can pin, so verifying
 # it here would be theatre. Left alone deliberately.)
 #
+# This also re-runs ccios_patch.py --check against the real upstream binary and
+# fails if it links a new dylib or has dropped a symbol the shim provides, so a
+# package that could not work is never published.
+#
 # Needs: dpkg-deb (brew install dpkg / apt install dpkg-dev), curl, python3.
-# libshim.dylib must exist at packaging/payload/libshim.dylib (tools/build-shim.sh).
+# The payload must exist already -- run tools/build-payload.sh on macOS first.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CDN="https://downloads.claude.ai/claude-code-releases"
 
-VERSION="${1:-}"
-if [ -z "$VERSION" ]; then
-    VERSION="$(curl -fsSL "$CDN/latest")"
-    echo "==> latest is $VERSION"
-fi
-REVISION="${2:-$(cat "$ROOT/packaging/revision" 2>/dev/null || echo 1)}"
+PAYLOAD="$ROOT/packaging/payload"
+REVISION="${1:-$(cat "$ROOT/packaging/revision" 2>/dev/null || echo 1)}"
 OUT="${OUT:-$ROOT/repo/debs}"
 GH_REPO="${GH_REPO:-}"
 GH_PAGES="${GH_PAGES:-}"
 
 command -v dpkg-deb >/dev/null || { echo "need dpkg-deb (brew install dpkg)"; exit 1; }
-[ -f "$ROOT/packaging/payload/libshim.dylib" ] || {
-    echo "missing packaging/payload/libshim.dylib -- run tools/build-shim.sh on macOS"; exit 1; }
+[ -f "$PAYLOAD/libshim.dylib" ] || {
+    echo "missing packaging/payload/libshim.dylib -- run tools/build-payload.sh on macOS first"; exit 1; }
+[ -f "$PAYLOAD/PAYLOAD.version" ] || {
+    echo "missing packaging/payload/PAYLOAD.version -- run tools/build-payload.sh on macOS first"; exit 1; }
+
+read -r VERSION < "$PAYLOAD/PAYLOAD.version"
 
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 sha256() {
@@ -133,8 +150,14 @@ payload_digest() {
     ( cd "$dir" && ar x "$deb" \
       && mkdir -p x && tar xf data.tar.* -C x 2>/dev/null \
       && tar xf control.tar.* -C x 2>/dev/null )
+    # Excluded by PATH, not by name. `! -name libshim.dylib` would also exclude
+    # any other file that happened to share the basename, which is how a sibling
+    # port lost sight of a second file called `gh`. Nothing here shares a
+    # basename today -- but the exclusion should not be the thing that has to be
+    # re-checked when a file is added.
     ( cd "$dir/x" && find . -type f \
-        ! -name control ! -name md5sums ! -name libshim.dylib -print0 | sort -z \
+        ! -path './control' ! -path './md5sums' \
+        ! -path './var/jb/usr/local/lib/claude-native/libshim.dylib' -print0 | sort -z \
       | xargs -0 shasum -a 256 2>/dev/null ) | shasum -a 256 | cut -d' ' -f1
     rm -rf "$dir"
 }

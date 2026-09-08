@@ -436,16 +436,25 @@ sooner; it just needs its own key (`ccforios.gpg`).
 `.github/workflows/publish.yml` runs every 6 hours (and on `workflow_dispatch`,
 and on pushes to `main` that touch `packaging/`, `tools/` or the workflow):
 
-1. **resolve** — ask the CDN what `/latest` is; fall back to the npm `latest`
-   dist-tag if the CDN answer is unusable. Read `packaging/revision`.
-2. **shim** — build `libshim.dylib` on a `macos-14` runner (the only step that
-   needs the iPhoneOS SDK; the 200 MB Claude Code binary is never touched here).
-3. **publish** — on Ubuntu: `build-deb.sh` fetches the real upstream binary,
-   cross-checks the two channels, runs `ccios_patch.py --check`, and builds the
-   12 KB package with version `<upstream>-<revision>`. `fetch-published.sh`
-   pulls the packages already on the live repo forward and keeps the newest 10.
-   `make-repo.py` regenerates `Packages{,.gz,.bz2,.xz}` and `Release`. The
-   result is deployed to GitHub Pages.
+The orchestration is the reusable workflow in
+[`realAndi/ios-port-ci`](https://github.com/realAndi/ios-port-ci), shared with
+the other iOS ports and pinned at `@v1`; this repository supplies only the three
+scripts in `tools/` and everything in `packaging/`. Its jobs:
+
+1. **resolve** — `tools/resolve-version.sh` asks the CDN what `/latest` is,
+   falling back to the npm `latest` dist-tag if that answer is unusable. Given a
+   `workflow_dispatch` version it validates it instead, and fails immediately if
+   Anthropic publishes no manifest for it. Reads `packaging/revision`.
+2. **payload** — `tools/build-payload.sh` builds and signs `libshim.dylib` on a
+   macOS runner (the only step that needs the iPhoneOS SDK; the 200 MB Claude
+   Code binary is never touched here) and asserts the result is signed, because
+   iOS will not load a dylib without a cdhash.
+3. **publish** — on Ubuntu: `tools/build-deb.sh` fetches the real upstream
+   binary, cross-checks the two channels, runs `ccios_patch.py --check`, and
+   builds the 12 KB package with version `<upstream>-<revision>`. The shared
+   `fetch-published.sh` pulls the packages already on the live repo forward and
+   keeps the newest 10, `make-repo.py` regenerates `Packages{,.gz,.bz2,.xz}` and
+   `Release` and signs them, and the result is deployed to GitHub Pages.
 
 Because the package version mirrors upstream, there is no state to track: Sileo
 sees a new version exactly when Anthropic ships one, and offers the upgrade.
@@ -509,13 +518,18 @@ shimming); or the Mach-O header running out of slack for the added
 
 The published `Release` is signed into `InRelease` and `Release.gpg`, and the
 public key is served at
-[`ccforios.gpg`](https://realandi.github.io/CCForiOS/ccforios.gpg).
+[`ccforios.gpg`](https://realandi.github.io/CCForiOS/ccforios.gpg). The shared
+workflow would name it `key.gpg` by default; the caller passes
+`key-file: ccforios.gpg` so the URL this README links keeps working and nobody's
+`signed-by=` breaks.
 
 The signing happens in the Action, so the private key lives in the
 `CCIOS_GPG_KEY` repository secret (`CCIOS_GPG_KEY_ID` names it). That is
 unavoidable for a repository that rebuilds unattended, and it is why this key is
-**not** the one that signs reallyitsandi.com — that key never leaves a local
-machine, so a compromise of CI here cannot forge packages there. Rotating this
+**not** the one that signs reallyitsandi.com. That key is a different key held
+in a different repository's Actions secrets (`Portfolio-Site`), so a compromise
+of this repository's CI cannot forge packages there. Each port signs with its
+own key for the same reason. Rotating this
 one means generating a new pair, replacing both secrets, and republishing;
 anyone who installed the old key has to fetch the new one.
 
@@ -544,9 +558,11 @@ five lines of noise are a better trade than that.
 
 | step | needs |
 |---|---|
-| `tools/build-shim.sh` | macOS with Xcode command line tools and the iPhoneOS SDK (`xcrun --sdk iphoneos`); `ldid` to sign the shim (optional, warns if absent) |
+| `tools/resolve-version.sh` | `curl`, `python3` |
+| `tools/build-payload.sh` | macOS with Xcode command line tools and the iPhoneOS SDK (`xcrun --sdk iphoneos`), and `ldid` — both checked, neither installed |
+| `tools/build-shim.sh` | the same, but `ldid` is optional (it warns rather than failing, so it stays runnable on the device); `build-payload.sh` is what turns that into a hard error |
 | `tools/build-deb.sh` | `dpkg-deb` (`brew install dpkg` / `apt install dpkg-dev`), `python3`, `curl` |
-| `tools/make-repo.py` | `python3`, `dpkg-deb` |
+| `.ci/tools/make-repo.py` | `python3`, `dpkg-deb`, `gpg` to sign |
 
 Building the shim is the only step that truly needs macOS; everything else runs
 anywhere with `dpkg-deb`.
@@ -554,15 +570,18 @@ anywhere with `dpkg-deb`.
 ### Build
 
 ```sh
-# 1. The shim: packaging/payload/libshim.dylib
-./tools/build-shim.sh
+# 1. The payload: packaging/payload/{libshim.dylib,PAYLOAD.version}
+#    Takes the version; tools/resolve-version.sh picks one if you have none.
+./tools/build-payload.sh "$(./tools/resolve-version.sh)"
 
 # 2. The package: repo/debs/com.andi.claude-code-native_<version>-<revision>_iphoneos-arm64.deb
-#    version defaults to the CDN's /latest, revision to packaging/revision
-./tools/build-deb.sh                 # or: ./tools/build-deb.sh 2.1.263 1
+#    The version comes from PAYLOAD.version; the argument is the revision,
+#    which defaults to packaging/revision.
+./tools/build-deb.sh                 # or: ./tools/build-deb.sh 1
 
-# 3. APT metadata: repo/Packages{,.gz,.bz2,.xz} and repo/Release
-python3 tools/make-repo.py repo
+# 3. APT metadata: repo/Packages{,.gz,.bz2,.xz} and repo/Release.
+#    make-repo.py is shared; tools/ci.sh clones ios-port-ci@v1 into .ci/.
+python3 "$(tools/ci.sh)/make-repo.py" repo
 ```
 
 `build-deb.sh` downloads the upstream binary only to cross-check the two
@@ -626,7 +645,7 @@ The workflow discovers its own Pages URL, so nothing needs editing for a fork.
 When rebuilding, run
 
 ```sh
-tools/fetch-published.sh https://<owner>.github.io/CCForiOS/ [keep]
+"$(tools/ci.sh)/fetch-published.sh" https://<owner>.github.io/CCForiOS/ repo/debs [keep]
 ```
 
 before `make-repo.py` to pull the already-published packages forward — otherwise
@@ -644,17 +663,20 @@ packaging/DEBIAN/postinst            fetch, verify, patch, sign, smoke-test, ins
 packaging/DEBIAN/prerm               remove the fetched binary, hand `claude` back
 packaging/payload/shim.c             the shim
 packaging/payload/ccios_patch.py     the Mach-O patcher
+packaging/payload/ccauth.py          the OAuth flow and credential refresh
 packaging/payload/claude-native      the wrapper
+packaging/payload/claude-login       sign-in, run by the user
 packaging/payload/entitlements.plist JIT entitlements for ldid
 packaging/payload/version.env.in     filled in by build-deb.sh
 packaging/revision                   package revision; bump to force a rebuild
 packaging/depiction.html, index.html copied into the published repo
+tools/resolve-version.sh             which upstream version to build
+tools/build-payload.sh               the payload (macOS); calls build-shim.sh
 tools/build-shim.sh                  libshim.dylib (macOS + iPhoneOS SDK)
 tools/build-deb.sh                   the .deb
-tools/fetch-published.sh             carry published versions forward
-tools/make-repo.py                   Packages + Release
+tools/ci.sh                          clones ios-port-ci@v1 into .ci/ for local use
 repo/                                generated APT repo (deployed to Pages; gitignored)
-.github/workflows/publish.yml        the 6-hourly build
+.github/workflows/publish.yml        calls realAndi/ios-port-ci@v1, 6-hourly
 ```
 
 ## License

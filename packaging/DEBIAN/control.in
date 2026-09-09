@@ -8,7 +8,8 @@ Section: Development
 Priority: optional
 Depends: zsh, python3, ldid, curl, tar, coreutils, firmware (>= 15.0)
 Icon: https://raw.githubusercontent.com/@REPO@/main/assets/icon.png
-Depiction: https://@PAGES@/depiction.html
+Native-Depiction: https://@PAGES@/depiction.json
+SileoDepiction: https://@PAGES@/depiction.json
 Tag: role::developer
 Description: Anthropic's Claude Code CLI, native build, patched for iOS
  Packages Claude Code @CC_VERSION@.

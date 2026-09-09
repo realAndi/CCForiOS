@@ -1,0 +1,121 @@
+{
+  "class": "DepictionTabView",
+  "minVersion": "0.1",
+  "tintColor": "#C15F3C",
+  "tabs": [
+    {
+      "class": "DepictionStackView",
+      "tabname": "Details",
+      "views": [
+        {
+          "class": "DepictionMarkdownView",
+          "useSpacing": true,
+          "useRawFormat": false,
+          "markdown": "Anthropic's official Claude Code CLI, patched to run on jailbroken iOS.\n\nUpstream stopped shipping a JavaScript `cli.js` after 2.1.112. This packages the native `darwin-arm64` executable instead, patched so iOS will load and run it."
+        },
+        { "class": "DepictionSeparatorView" },
+        {
+          "class": "DepictionSubheaderView",
+          "title": "What gets installed",
+          "useBoldText": true,
+          "useBottomMargin": true
+        },
+        {
+          "class": "DepictionMarkdownView",
+          "useSpacing": true,
+          "useRawFormat": false,
+          "markdown": "This package is about 12 KB. It does **not** contain Claude Code.\n\nOn install it downloads the official tarball from the npm registry, verifies its SHA-256, patches it on your device, signs it with `ldid`, runs it to confirm it works, and only then installs it. Takes a few seconds and needs a network connection."
+        },
+        { "class": "DepictionSeparatorView" },
+        {
+          "class": "DepictionSubheaderView",
+          "title": "At a glance",
+          "useBoldText": true,
+          "useBottomMargin": true
+        },
+        { "class": "DepictionTableTextView", "title": "Package", "text": "com.andi.claude-code-native" },
+        { "class": "DepictionTableTextView", "title": "Downloads on install", "text": "about 87 MB" },
+        { "class": "DepictionTableTextView", "title": "Installed size", "text": "about 200 MB" },
+        { "class": "DepictionTableTextView", "title": "Startup", "text": "about 500 ms" },
+        { "class": "DepictionTableTextView", "title": "Tested on", "text": "iOS 17.3, Dopamine" },
+        {
+          "class": "DepictionTableButtonView",
+          "title": "Port source and write-up",
+          "action": "https://github.com/realAndi/CCForiOS",
+          "openExternal": true
+        },
+        { "class": "DepictionSeparatorView" },
+        {
+          "class": "DepictionSubheaderView",
+          "title": "Getting started",
+          "useBoldText": true,
+          "useBottomMargin": true
+        },
+        {
+          "class": "DepictionMarkdownView",
+          "useSpacing": true,
+          "useRawFormat": false,
+          "markdown": "Sign in once, then use it normally:\n\n`claude-login`\n\n`claude`\n\nA URL appears. Open it in Safari, approve, paste the code back. It signs in with full scopes, so Remote Control works, and it keeps itself refreshed.\n\nUse `claude-login`, **not** `claude auth login`. The latter signs in and then cannot save the result on iOS, so it lands back at signed out. Your previous install, if any, stays available as `claude-legacy`."
+        }
+      ]
+    },
+    {
+      "class": "DepictionStackView",
+      "tabname": "Requires",
+      "views": [
+        {
+          "class": "DepictionMarkdownView",
+          "useSpacing": true,
+          "useRawFormat": false,
+          "markdown": "- A rootless jailbreak (`/var/jb`). Tested on Dopamine.\n- iOS 15 or later, arm64. Tested on iOS 17.3.\n- A network connection during install.\n- About 700 MB free while installing, about 200 MB afterwards."
+        },
+        { "class": "DepictionSeparatorView" },
+        {
+          "class": "DepictionSubheaderView",
+          "title": "Dependencies",
+          "useBoldText": true,
+          "useBottomMargin": true
+        },
+        {
+          "class": "DepictionMarkdownView",
+          "useSpacing": true,
+          "useRawFormat": false,
+          "markdown": "zsh, python3, ldid, curl, tar, coreutils. Sileo installs any that are missing before this one.\n\n**Node.js is not needed.** The Claude Code binary is Bun-compiled and self-contained, and `claude-login` uses only the Python standard library."
+        }
+      ]
+    },
+    {
+      "class": "DepictionStackView",
+      "tabname": "Notes",
+      "views": [
+        {
+          "class": "DepictionMarkdownView",
+          "useSpacing": true,
+          "useRawFormat": false,
+          "markdown": "**Sign in with `claude-login`.** Claude Code stores credentials through `Bun.secrets`, which cannot write on iOS, so its own sign-in completes and then silently discards the result. `claude-login` runs the same OAuth flow with the same scopes and keeps the credential refreshed."
+        },
+        { "class": "DepictionSeparatorView" },
+        {
+          "class": "DepictionMarkdownView",
+          "useSpacing": true,
+          "useRawFormat": false,
+          "markdown": "**Sileo is the updater.** Claude Code's own auto-updater is off: it would fetch the unpatched macOS binary and replace a working install with one that cannot load."
+        },
+        { "class": "DepictionSeparatorView" },
+        {
+          "class": "DepictionMarkdownView",
+          "useSpacing": true,
+          "useRawFormat": false,
+          "markdown": "**The JIT is emulated.** iOS has no `MAP_JIT`, so the shim flips the JIT pool between writable and executable with `mprotect`. The wrapper sets `BUN_JSC_useConcurrentJIT=0`, which that requires."
+        },
+        { "class": "DepictionSeparatorView" },
+        {
+          "class": "DepictionMarkdownView",
+          "useSpacing": true,
+          "useRawFormat": false,
+          "markdown": "**Some things will not work.** Anything needing macOS-only frameworks, such as screenshots and the webview, is absent.\n\n`claude doctor` shows a few cosmetic warnings about `~/.local/bin` and the keychain. Do not run `claude install` as they suggest: that would replace the patched binary with one that cannot run on iOS."
+        }
+      ]
+    }
+  ]
+}

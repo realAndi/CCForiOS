@@ -46,7 +46,18 @@ jobs:
       # published index out from under anyone mirroring it.
       origin: CCForiOS
       label: Claude Code for iOS
-      description: Native Claude Code CLI, patched to run on jailbroken iOS
+      # Debian control format: the first line is the summary, continuation
+      # lines are indented by one space, and a lone " ." is a paragraph break.
+      # `|-` and not `|` -- a trailing newline would land a blank line in
+      # Release, which ends the stanza and orphans Date and every checksum
+      # below it. Verified by parsing the generated file back.
+      description: |-
+        Claude Code for iOS
+         Anthropic's official CLI, running natively on jailbroken iOS.
+         .
+         Nothing else to install: no Node.js, no npm, no JavaScript runtime.
+         The binary is Bun-compiled and self-contained, and this package
+         patches it to run on iOS.
       # build-shim.sh signs libshim.dylib with ldid, and iOS will not load an
       # unsigned dylib. No Go anywhere in this port -- the shim is built with
       # `xcrun --sdk iphoneos clang` -- so go-version stays unset rather than

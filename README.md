@@ -456,6 +456,21 @@ scripts in `tools/` and everything in `packaging/`. Its jobs:
    keeps the newest 10, `make-repo.py` regenerates `Packages{,.gz,.bz2,.xz}` and
    `Release` and signs them, and the result is deployed to GitHub Pages.
 
+The schedule polls every 30 minutes, and the shared `resolve` job skips a
+scheduled run whose version-revision is already published — so a poll that finds
+nothing new costs a few seconds on one Ubuntu job and deploys nothing, while a
+real release is picked up within half an hour instead of up to six. A push or a
+manual run always builds, since the first changed the packaging and the second
+is someone asking for a rebuild.
+
+The package states which Claude Code it wraps in two places: its `Description`,
+which is what Sileo shows, and a Debian `changelog` at
+`/var/jb/usr/share/doc/com.andi.claude-code-native/changelog`. Both are
+generated from the version being built. The changelog is dated from Anthropic's
+own `buildDate` in the manifest rather than from the clock, so rebuilding a
+version produces the same bytes — a timestamp there would change the package on
+every run and trip the already-published guard forever.
+
 Because the package version mirrors upstream, there is no state to track: Sileo
 sees a new version exactly when Anthropic ships one, and offers the upgrade.
 On upgrade the postinst does the same fetch-verify-patch-sign-run sequence as a

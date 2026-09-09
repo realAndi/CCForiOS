@@ -15,7 +15,10 @@ name: build and publish repo
 
 on:
   schedule:
-    - cron: "0 */6 * * *"
+    # Every 30 minutes. The resolve job in ios-port-ci skips a scheduled run
+    # whose version-revision is already published, so a poll that finds nothing
+    # new costs one ubuntu job of a few seconds and deploys nothing.
+    - cron: "*/30 * * * *"
   workflow_dispatch:
     inputs:
       version:

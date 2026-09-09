@@ -11,6 +11,8 @@ Icon: https://raw.githubusercontent.com/@REPO@/main/assets/icon.png
 Depiction: https://@PAGES@/depiction.html
 Tag: role::developer
 Description: Anthropic's Claude Code CLI, native build, patched for iOS
+ Packages Claude Code @CC_VERSION@.
+ .
  The official darwin-arm64 Claude Code executable (Bun-compiled) made to run on
  jailbroken iOS. Upstream stopped shipping a JavaScript cli.js after 2.1.112, so
  this packages the native binary instead.

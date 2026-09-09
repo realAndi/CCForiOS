@@ -73,6 +73,24 @@ PY
 )
 echo "    published binary sha256: $BIN_SHA"
 
+# Anthropic's own build date for this version, reformatted for the Debian
+# changelog below. Taken from the manifest rather than `date` so that rebuilding
+# the same version produces the same bytes -- a timestamp here would change the
+# package on every run and fire the already-published guard forever.
+BUILD_DATE=$(python3 - "$TMP/manifest.json" <<'PYDATE'
+import datetime, json, sys
+raw = json.load(open(sys.argv[1])).get("buildDate")
+if raw:
+    t = datetime.datetime.fromisoformat(raw.replace("Z", "+00:00"))
+else:
+    # No buildDate in the manifest: fall back to a fixed date rather than to
+    # now, which would be non-deterministic. A wrong-but-stable date is
+    # recoverable; a package that differs on every build is not.
+    t = datetime.datetime(1970, 1, 1, tzinfo=datetime.timezone.utc)
+print(t.strftime("%a, %d %b %Y %H:%M:%S +0000"))
+PYDATE
+)
+
 echo "==> npm tarball, cross-checked against that"
 NPM_URL="https://registry.npmjs.org/@anthropic-ai/claude-code-darwin-arm64/-/claude-code-darwin-arm64-$VERSION.tgz"
 curl -fsSL "$NPM_URL" -o "$TMP/pkg.tgz"
@@ -112,8 +130,28 @@ sed -e "s|@CC_VERSION@|$VERSION|g" \
 chmod 644 "$LIB/version.env"
 
 sed -e "s|@VERSION@|$VERSION-$REVISION|g" \
+    -e "s|@CC_VERSION@|$VERSION|g" \
     -e "s|@REPO@|$GH_REPO|g" -e "s|@PAGES@|$GH_PAGES|g" \
     "$ROOT/packaging/DEBIAN/control.in" > "$STAGE/DEBIAN/control"
+
+# Which Claude Code this build wraps, in the place dpkg and apt look for it.
+# Generated rather than committed: the only thing that changes between releases
+# of this package is the upstream version it packages, and that is already
+# known here -- a hand-maintained file would just be a second place to forget to
+# update. Debian format so `apt changelog` and on-device inspection both parse
+# it; the urgency and maintainer fields are required by that format.
+DOC="$STAGE/var/jb/usr/share/doc/com.andi.claude-code-native"
+mkdir -p "$DOC"
+cat > "$DOC/changelog" <<CHANGELOG
+com.andi.claude-code-native ($VERSION-$REVISION) stable; urgency=low
+
+  * Claude Code updated to $VERSION.
+  * Downloaded from Anthropic and patched for iOS on install; see
+    https://github.com/realAndi/CCForiOS for what the patch does.
+
+ -- andi <tafilajandi@gmail.com>  $BUILD_DATE
+CHANGELOG
+chmod 644 "$DOC/changelog"
 [ -n "$GH_REPO"  ] || sed -i.bak '/^Icon:/d'      "$STAGE/DEBIAN/control"
 [ -n "$GH_PAGES" ] || sed -i.bak '/^Depiction:/d' "$STAGE/DEBIAN/control"
 rm -f "$STAGE/DEBIAN/control.bak"

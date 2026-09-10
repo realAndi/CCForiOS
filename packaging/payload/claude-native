@@ -30,7 +30,20 @@ export BUN_JSC_useConcurrentJIT=0
 # .credentials.json from our master copy -- Claude Code deletes its copy after
 # reading a valid one, so without this a sign-in would last exactly one run.
 if [ -r "$HOME/.claude/ccauth.json" ] || [ -r "$HOME/.claude/.credentials.json" ]; then
-    /var/jb/usr/bin/python3 -c 'import sys; sys.path.insert(0, "/var/jb/usr/local/lib/claude-native"); import ccauth; ccauth.refresh_if_needed(); ccauth.materialise()' 2>/dev/null || true
+    # Not silent on failure. A refresh that fails leaves a token that will stop
+    # working, and swallowing the reason is how that turns into "Claude Code
+    # says I am not signed in, claude-login says I am". Still non-fatal: the
+    # current token may well have hours left on it.
+    /var/jb/usr/bin/python3 -c '
+import sys
+sys.path.insert(0, "/var/jb/usr/local/lib/claude-native")
+import ccauth
+_, err = ccauth.refresh_if_needed()
+if err:
+    print("claude: could not refresh credentials: %s" % err, file=sys.stderr)
+    print("claude: run claude-login if it stops working", file=sys.stderr)
+ccauth.materialise()
+' || true
 fi
 
 # Fallback for headless use: a long-lived token from `claude setup-token`, which

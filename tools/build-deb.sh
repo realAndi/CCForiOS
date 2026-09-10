@@ -42,7 +42,6 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CDN="https://downloads.claude.ai/claude-code-releases"
 
 PAYLOAD="$ROOT/packaging/payload"
-REVISION="${1:-$(cat "$ROOT/packaging/revision" 2>/dev/null || echo 1)}"
 OUT="${OUT:-$ROOT/repo/debs}"
 GH_REPO="${GH_REPO:-}"
 GH_PAGES="${GH_PAGES:-}"
@@ -55,12 +54,40 @@ command -v dpkg-deb >/dev/null || { echo "need dpkg-deb (brew install dpkg)"; ex
 
 read -r VERSION < "$PAYLOAD/PAYLOAD.version"
 
+# The package version follows Claude Code exactly, and grows a -N suffix only
+# when this repository changes something for that upstream version. So a run
+# that just picks up a new release publishes 2.1.267, not 2.1.267-16, and the
+# number a user sees means what it looks like it means.
+#
+# packaging/revision is therefore "<upstream version> <n>" -- n applies only to
+# that upstream version -- or a bare number, which always applies. When upstream
+# moves past the recorded version the suffix simply drops off, with no commit
+# needed, because the reason for it went away with it.
+#
+# ${1-...} and not ${1:-...}: an explicitly empty argument means "no revision",
+# and must not be replaced by the file's contents.
+if [ $# -ge 1 ]; then
+    REVISION="${1-}"
+else
+    REVISION=""
+    if [ -f "$ROOT/packaging/revision" ]; then
+        read -r _rev_for _rev_n < "$ROOT/packaging/revision" || true
+        if [ -n "${_rev_n:-}" ]; then
+            [ "$_rev_for" = "$VERSION" ] && REVISION="$_rev_n"
+        else
+            REVISION="${_rev_for:-}"
+        fi
+    fi
+fi
+PKGVER="$VERSION${REVISION:+-$REVISION}"
+
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 sha256() {
     if command -v sha256sum >/dev/null; then sha256sum "$1" | cut -d' ' -f1
     else shasum -a 256 "$1" | cut -d' ' -f1; fi
 }
 
+echo "==> Claude Code $VERSION -> package $PKGVER"
 echo "==> Anthropic manifest for $VERSION"
 curl -fsSL "$CDN/$VERSION/manifest.json" -o "$TMP/manifest.json"
 BIN_SHA=$(python3 - "$TMP/manifest.json" <<'PY'
@@ -129,7 +156,7 @@ sed -e "s|@CC_VERSION@|$VERSION|g" \
     "$ROOT/packaging/payload/version.env.in" > "$LIB/version.env"
 chmod 644 "$LIB/version.env"
 
-sed -e "s|@VERSION@|$VERSION-$REVISION|g" \
+sed -e "s|@VERSION@|$PKGVER|g" \
     -e "s|@CC_VERSION@|$VERSION|g" \
     -e "s|@REPO@|$GH_REPO|g" -e "s|@PAGES@|$GH_PAGES|g" \
     "$ROOT/packaging/DEBIAN/control.in" > "$STAGE/DEBIAN/control"
@@ -143,7 +170,7 @@ sed -e "s|@VERSION@|$VERSION-$REVISION|g" \
 DOC="$STAGE/var/jb/usr/share/doc/com.andi.claude-code-native"
 mkdir -p "$DOC"
 cat > "$DOC/changelog" <<CHANGELOG
-com.andi.claude-code-native ($VERSION-$REVISION) stable; urgency=low
+com.andi.claude-code-native ($PKGVER) stable; urgency=low
 
   * Claude Code updated to $VERSION.
   * Downloaded from Anthropic and patched for iOS on install; see
@@ -160,7 +187,7 @@ install -m 755 "$ROOT/packaging/DEBIAN/postinst" "$STAGE/DEBIAN/postinst"
 install -m 755 "$ROOT/packaging/DEBIAN/prerm"    "$STAGE/DEBIAN/prerm"
 
 mkdir -p "$OUT"
-DEB="$OUT/com.andi.claude-code-native_${VERSION}-${REVISION}_iphoneos-arm64.deb"
+DEB="$OUT/com.andi.claude-code-native_${PKGVER}_iphoneos-arm64.deb"
 dpkg-deb -Zxz --root-owner-group --build "$STAGE" "$DEB" >/dev/null
 echo "==> $DEB ($(du -h "$DEB" | cut -f1))"
 
@@ -205,11 +232,11 @@ if [ -n "$GH_PAGES" ]; then
     if curl -fsSL "https://$GH_PAGES/debs/$(basename "$DEB")" -o "$PREV" 2>/dev/null; then
         if [ "$(payload_digest "$PREV")" != "$(payload_digest "$DEB")" ]; then
             echo
-            echo "!! $VERSION-$REVISION is already published with different content."
+            echo "!! $PKGVER is already published with different content."
             echo "   Republishing it would change nothing on anyone's device: apt sees"
             echo "   the same version and offers no upgrade."
             echo
-            echo "   Bump packaging/revision (currently $REVISION) and rebuild."
+            echo "   Bump packaging/revision to \"$VERSION <n>\" and rebuild."
             exit 1
         fi
         echo "    matches what is already published at this version"

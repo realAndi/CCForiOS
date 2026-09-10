@@ -9,9 +9,9 @@ leaves you signed out. See ccauth.py for the details.
 Full scope matters: user:profile is the difference between Remote Control
 working and not, and a `claude setup-token` token is capped at user:inference.
 
-  claude-login            sign in
-  claude-login --status   show what is stored
-  claude-login --refresh  force a token refresh now
+  claude-login            sign in, always -- even if a credential is stored
+  claude-login --status   show what is stored, and when it expires
+  claude-login --refresh  renew the access token without a browser
   claude-login --logout   delete the stored credential
 """
 
@@ -139,9 +139,12 @@ def main():
     if arg in ("-h", "--help"):
         print(__doc__.strip())
         return 0
-    if ccauth.read() and arg != "--force":
-        say("Already signed in. Use --status to check, --force to sign in again.")
-        return 0
+    # No already-signed-in short circuit. The case that matters is a credential
+    # that exists but no longer works -- a refresh that failed while offline, a
+    # token revoked from the web -- and refusing to act on the word "login"
+    # because a file is present is exactly wrong there: Claude Code says it is
+    # not signed in, this said it was, and there was nothing to do about it.
+    # Signing in again when you did not need to costs one browser round trip.
     return login()
 
 

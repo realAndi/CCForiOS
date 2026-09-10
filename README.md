@@ -671,7 +671,11 @@ the repo only ever offers the newest build and there is nothing to roll back to.
 `keep` defaults to 10. The workflow does this automatically.
 
 To force a rebuild without waiting for a new upstream release — after a change
-to `shim.c`, for instance — bump `packaging/revision`.
+to `shim.c`, for instance — set `packaging/revision` to `<upstream version> <n>`,
+for example `2.1.267 1`. The package version is then `2.1.267-1`; the plain
+`2.1.267` it would otherwise be means "this is exactly what Anthropic shipped,
+with nothing changed here". The suffix disappears by itself when upstream moves
+past the recorded version, so it never has to be reset by hand.
 
 ### Layout
 

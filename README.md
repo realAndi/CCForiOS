@@ -677,6 +677,12 @@ for example `2.1.267 1`. The package version is then `2.1.267-1`; the plain
 with nothing changed here". The suffix disappears by itself when upstream moves
 past the recorded version, so it never has to be reset by hand.
 
+One caveat when picking `<n>`: it has to beat any revision already published for
+that same upstream version, because apt compares them numerically. The old
+scheme's counter was global, so versions carrying a high revision may already
+exist — `2.1.267-16` did — and starting again at `1` would publish something apt
+considers older than what is already there.
+
 ### Layout
 
 ```

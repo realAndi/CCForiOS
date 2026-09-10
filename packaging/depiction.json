@@ -33,6 +33,7 @@
           "useBoldText": true,
           "useBottomMargin": true
         },
+        { "class": "DepictionTableTextView", "title": "Claude Code", "text": "@VERSION@" },
         { "class": "DepictionTableTextView", "title": "Package", "text": "com.andi.claude-code-native" },
         { "class": "DepictionTableTextView", "title": "Downloads on install", "text": "about 87 MB" },
         { "class": "DepictionTableTextView", "title": "Installed size", "text": "about 200 MB" },

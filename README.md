@@ -15,7 +15,6 @@ APT like any other package.
 | Sileo source | `https://reallyitsandi.com/repo/` |
 | Package | `com.andi.claude-code-native` ("Claude Code (native)") |
 | Source | https://github.com/realAndi/CCForiOS |
-| Current upstream | Claude Code 2.1.263 |
 | Verified on | iPhone 15 Pro (A17 Pro), iOS 17.3 (21D50), Dopamine rootless (`/var/jb`, Procursus) |
 
 ## Installing
@@ -77,7 +76,8 @@ ssh phone 'zsh -l -c "claude -p \"reply with the single word OK\""'
 ### What works
 
 `claude --version`, the full `--help`, `claude doctor` (reports
-`Running: native (2.1.263)`, `Platform: darwin-arm64`, `Search: OK (bundled)`),
+`Running: native (<version>)`, `Platform: darwin-arm64`,
+`Search: OK (bundled)`),
 interactive and `-p` sessions against the API with TLS, retry/backoff, MCP
 registry, LSP manager and telemetry all starting and shutting down cleanly.
 Tools exercised end to end: Bash (subprocess spawn), Grep, Read, Glob. Search is
@@ -387,7 +387,8 @@ There are two independent official sources for the same artifact:
   which contains the binary as `package/claude`.
 
 Both were confirmed to serve byte-identical binaries — SHA-256
-`ef5d2909c8af49f31ab6d5487e90316777bc2fac170adfe8160716caa8aaf4f9` for 2.1.263.
+`ef5d2909c8af49f31ab6d5487e90316777bc2fac170adfe8160716caa8aaf4f9` for 2.1.263,
+which was current when this was written.
 
 **At build time** (`tools/build-deb.sh`) the CDN manifest's checksum is
 authoritative. The build downloads the npm tarball, extracts the binary, and
@@ -463,8 +464,10 @@ real release is picked up within half an hour instead of up to six. A push or a
 manual run always builds, since the first changed the packaging and the second
 is someone asking for a rebuild.
 
-The package states which Claude Code it wraps in two places: its `Description`,
-which is what Sileo shows, and a Debian `changelog` at
+The package states which Claude Code it wraps in three places: its `Description`,
+which is what Sileo shows, the depiction's "At a glance" table — `@VERSION@`
+there is substituted at publish time by the shared workflow — and a Debian
+`changelog` at
 `/var/jb/usr/share/doc/com.andi.claude-code-native/changelog`. Both are
 generated from the version being built. The changelog is dated from Anthropic's
 own `buildDate` in the manifest rather than from the clock, so rebuilding a
@@ -511,7 +514,7 @@ The last 10 versions stay in the repo, so Sileo shows a version list. From a
 shell:
 
 ```sh
-sudo apt install --allow-downgrades com.andi.claude-code-native=2.1.263-1
+sudo apt install --allow-downgrades com.andi.claude-code-native=<version>-<revision>
 ```
 
 (The `-1` is the package revision.) Verified working.

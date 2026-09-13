@@ -93,35 +93,21 @@
           "class": "DepictionMarkdownView",
           "useSpacing": true,
           "useRawFormat": false,
-          "markdown": "**Sign in with `claude-login`.** Claude Code stores credentials through `Bun.secrets`, which cannot write on iOS, so its own sign-in completes and then silently discards the result. `claude-login` runs the same OAuth flow with the same scopes and keeps the credential refreshed."
+          "markdown": "**Sign-in.** Due to the nature of Claude Code storing credentials through `Bun.secrets`, a custom sign-in method is required. Please run `claude-login` to run the same OAuth flow. Your sign-in information is stored in the iOS keychain. (`claude auth login` cannot save credentials on iOS, so it leaves you signed out.)"
         },
         { "class": "DepictionSeparatorView" },
         {
           "class": "DepictionMarkdownView",
           "useSpacing": true,
           "useRawFormat": false,
-          "markdown": "**Your sign-in is stored in the iOS keychain.** `claude-login` keeps the long-lived refresh token as a this-device-only keychain item (outside the jailbreak root), and the only file Claude Code ever sees is a short-lived access-token mirror. What that buys: \"Erase All Content and Settings\" destroys the credential, it is excluded from backups and device restores, and an iOS update or jailbreak reinstall no longer signs you out. What it does not buy: a jailbroken device has no security boundary against root -- treat the sign-in like a pasted API key, run `claude-login --logout` before passing the device on, and revoke the session in your Claude settings for certainty."
+          "markdown": "**Updates.** This package auto-updates Claude Code: when Anthropic ships a new version, it is published to this repository. Updates are downloaded through your package manager -- Claude Code's own updater is disabled, because it would break the install."
         },
         { "class": "DepictionSeparatorView" },
         {
           "class": "DepictionMarkdownView",
           "useSpacing": true,
           "useRawFormat": false,
-          "markdown": "**Sileo is the updater.** Claude Code's own auto-updater is off: it would fetch the unpatched macOS binary and replace a working install with one that cannot load."
-        },
-        { "class": "DepictionSeparatorView" },
-        {
-          "class": "DepictionMarkdownView",
-          "useSpacing": true,
-          "useRawFormat": false,
-          "markdown": "**The JIT is emulated.** iOS has no `MAP_JIT`, so the shim flips the JIT pool between writable and executable with `mprotect`. The wrapper sets `BUN_JSC_useConcurrentJIT=0`, which that requires."
-        },
-        { "class": "DepictionSeparatorView" },
-        {
-          "class": "DepictionMarkdownView",
-          "useSpacing": true,
-          "useRawFormat": false,
-          "markdown": "**Some things will not work.** Anything needing macOS-only frameworks, such as screenshots and the webview, is absent.\n\n`claude doctor` shows a few cosmetic warnings about `~/.local/bin` and the keychain. Do not run `claude install` as they suggest: that would replace the patched binary with one that cannot run on iOS."
+          "markdown": "**Compatibility.** Keep in mind this is patch-work for the macOS binary; not everything will work 1 to 1. Please do not run `claude install` -- it would replace the patched binary with one that cannot run on iOS."
         }
       ]
     }

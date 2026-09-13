@@ -1,0 +1,41 @@
+Package: com.andi.claude-code-native
+Name: Claude Code (native)
+Version: @VERSION@
+Architecture: iphoneos-arm64
+Maintainer: andi <tafilajandi@gmail.com>
+Author: Anthropic (upstream) / iOS port by andi
+Section: Development
+Priority: optional
+Depends: zsh, python3, ldid, curl, tar, coreutils, firmware (>= 15.0)
+Icon: https://raw.githubusercontent.com/@REPO@/main/assets/icon.png
+Native-Depiction: https://@PAGES@/depiction.json
+SileoDepiction: https://@PAGES@/depiction.json
+Tag: role::developer
+Description: Anthropic's Claude Code CLI, native build, patched for iOS
+ Packages Claude Code @CC_VERSION@.
+ .
+ The official darwin-arm64 Claude Code executable (Bun-compiled) made to run on
+ jailbroken iOS. Upstream stopped shipping a JavaScript cli.js after 2.1.112, so
+ this packages the native binary instead.
+ .
+ Sign in with `claude-login`, not `claude auth login`: Claude Code stores
+ credentials through Bun.secrets, which cannot write on iOS, so its own login
+ signs in and then silently discards the result. claude-login runs the same
+ OAuth flow with the same scopes and keeps the credential refreshed.
+ .
+ The credential's master copy is stored in the iOS keychain (this-device-only,
+ via the ccauth-keychain helper), not as a plain-text file: the long-lived
+ refresh token never touches the file system, and the keychain item is
+ destroyed by "Erase All Content and Settings" and excluded from backups.
+ A jailbroken device still has no security boundary for anything running as
+ root -- run `claude-login --logout` before passing the device on.
+ .
+ The binary itself is NOT redistributed here. On install this package downloads
+ the official tarball straight from the npm registry, verifies its SHA-256, and
+ patches it on device: Mach-O platform to iOS, a small shim linked in for the
+ four libSystem symbols iOS lacks, and the macOS framework dlopen paths
+ rewritten. Takes a few seconds.
+ .
+ The shim also makes JSC's JIT work, which is not optional: iOS has no MAP_JIT
+ and refuses to execute a writable page, and without JIT JavaScriptCore disables
+ SharedArrayBuffer, which Claude Code needs at startup.

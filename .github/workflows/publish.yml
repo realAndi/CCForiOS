@@ -1,0 +1,86 @@
+name: build and publish repo
+
+# Rebuilds the package for whatever Claude Code Anthropic currently ships and
+# republishes the APT repo to GitHub Pages. There is no state to track: the
+# package version mirrors upstream, so Sileo only sees a new version when
+# Anthropic actually ships one. Bump packaging/revision to force a rebuild
+# (e.g. after a wrapper change) without waiting for upstream.
+#
+# The orchestration lives in realAndi/ios-port-ci and is shared with the other
+# ports, so a change there -- a deprecated action, a new hardening step --
+# reaches all of them at once instead of being applied N times and forgotten in
+# the N+1th. This repository supplies only what is specific to Claude Code: the
+# three scripts in tools/ and everything in packaging/. See that repo's
+# CONTRACT.md.
+
+on:
+  schedule:
+    # Every 30 minutes. The resolve job in ios-port-ci skips a scheduled run
+    # whose version-revision is already published, so a poll that finds nothing
+    # new costs one ubuntu job of a few seconds and deploys nothing.
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Upstream version to build (blank = whatever Anthropic ships)"
+        required: false
+  push:
+    branches: [main]
+    paths: ["packaging/**", "tools/**", ".github/workflows/publish.yml"]
+
+# The reusable workflow needs these, and a caller cannot grant more than it has.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  # A job that calls a reusable workflow is only `uses:`/`with:`/`secrets:` --
+  # no steps of its own -- so everything below is inputs.
+  publish:
+    uses: realAndi/ios-port-ci/.github/workflows/publish.yml@v1
+    with:
+      package: com.andi.claude-code-native
+      # Written into Release, and what Sileo displays. The shared make-repo.py
+      # has generic defaults, so omitting these would quietly change the
+      # published index out from under anyone mirroring it.
+      origin: CCForiOS
+      label: Claude Code for iOS
+      # Debian control format: the first line is the summary, continuation
+      # lines are indented by one space, and a lone " ." is a paragraph break.
+      # `|-` and not `|` -- a trailing newline would land a blank line in
+      # Release, which ends the stanza and orphans Date and every checksum
+      # below it. Verified by parsing the generated file back.
+      description: |-
+        Claude Code for iOS
+         Anthropic's official CLI, running natively on jailbroken iOS.
+         .
+         Nothing else to install: no Node.js, no npm, no JavaScript runtime.
+         The binary is Bun-compiled and self-contained, and this package
+         patches it to run on iOS.
+      # build-shim.sh signs libshim.dylib with ldid, and iOS will not load an
+      # unsigned dylib. No Go anywhere in this port -- the shim is built with
+      # `xcrun --sdk iphoneos clang` -- so go-version stays unset rather than
+      # installing a toolchain nothing here uses.
+      brew-packages: ldid
+      # Keeps the published key at the URL README.md links. The default is
+      # key.gpg, which would rot that link and break anyone's signed-by=.
+      key-file: ccforios.gpg
+      version: ${{ inputs.version || '' }}
+      # Narrowed from the default of the whole directory: most of
+      # packaging/payload/ is committed source the publish job already has from
+      # its own checkout, and the default would also sweep up a stray
+      # __pycache__/ from the --check run. ccauth-keychain is the exception that
+      # proves the narrowing: a compiled, gitignored binary built in this job,
+      # which the publish job cannot check out and build-deb.sh must stage.
+      payload-paths: |
+        packaging/payload/libshim.dylib
+        packaging/payload/ccauth-keychain
+        packaging/payload/PAYLOAD.version
+    secrets:
+      # Its own key, not the one that signs reallyitsandi.com and not gh-port's,
+      # so a compromise of this repository's CI cannot forge packages for the
+      # others. reallyitsandi.com pins this fingerprint and refuses an index it
+      # cannot verify, so the secret names here must not change.
+      GPG_KEY: ${{ secrets.CCIOS_GPG_KEY }}
+      GPG_KEY_ID: ${{ secrets.CCIOS_GPG_KEY_ID }}

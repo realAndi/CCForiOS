@@ -1,0 +1,73 @@
+#!/var/jb/usr/bin/zsh
+# Claude Code, native darwin-arm64 build patched to run on iOS.
+# See ~/ccnative/LOG.md on the build host for how the binary was made.
+
+export HOME="${HOME:-/var/jb/var/mobile}"
+
+# Claude Code also writes ~/.claude.json, session transcripts and logs. Without
+# this they land with default perms; the credential file is already 0600, keep
+# the rest of what it records out of group/other as well.
+umask 077
+
+# No iOS build exists upstream, so never let it replace itself.
+export DISABLE_AUTOUPDATER=1
+
+# REQUIRED. JSC's JIT pool is flipped between RW and RX with mprotect (iOS has
+# no MAP_JIT and refuses to execute a writable page). That flip is process-wide
+# where the real pthread_jit_write_protect_np is per-thread, so a background
+# compiler thread would flip the pool to RW while the main thread is executing
+# out of it -> "panic: Bus error". Compiling on the mutator thread avoids it.
+export BUN_JSC_useConcurrentJIT=0
+
+# Credentials.
+#
+# Claude Code stores credentials through Bun.secrets, which cannot write on iOS,
+# so `claude auth login` signs in and then silently discards the result. It
+# reads ~/.claude/.credentials.json perfectly well though, so claude-login does
+# the OAuth flow itself and stores the master in the iOS keychain (via the
+# ccauth-keychain helper beside the binary; CCAUTH_PLAINTEXT=1 opts for a 0600
+# file instead). This refreshes the access token before it expires, then
+# re-creates .credentials.json -- carrying the access token only; the long-lived
+# refresh token never touches the file system. Claude Code deletes its copy
+# after reading a valid one, so without this a sign-in would last exactly one
+# run.
+#
+# Deliberately quiet and non-fatal: if the refresh fails, start anyway. The
+# current token may still be valid, and an expired one produces a better error
+# from Claude Code than from a wrapper.
+SIGNED_IN=0
+/var/jb/usr/bin/python3 -c '
+import sys
+sys.path.insert(0, "/var/jb/usr/local/lib/claude-native")
+import ccauth
+ok, err = ccauth.launch_hook()
+# Not silent on failure. A refresh that fails leaves a token that will stop
+# working, and swallowing the reason is how that turns into "Claude Code says I
+# am not signed in, claude-login says I am". Still non-fatal: the current token
+# may well have hours left on it.
+if err:
+    print("claude: could not refresh credentials: %s" % err, file=sys.stderr)
+    print("claude: run claude-login if it stops working", file=sys.stderr)
+sys.exit(0 if ok else 3)
+' && SIGNED_IN=1 || SIGNED_IN=$?
+
+# Fallback for headless use: a long-lived token from `claude setup-token`, which
+# skips the credential store entirely. Capped at user:inference by design, so it
+# costs Remote Control -- claude-login is the better path. An already-exported
+# value always wins.
+if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ] && [ ! -r "$HOME/.claude/ccauth.json" ] \
+   && [ ! -r "$HOME/.claude/.credentials.json" ] && [ -r "$HOME/.claude/oauth-token" ]; then
+    CLAUDE_CODE_OAUTH_TOKEN="$(tr -d ' \t\r\n' < "$HOME/.claude/oauth-token")"
+    [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] && export CLAUDE_CODE_OAUTH_TOKEN
+fi
+
+# Signed out? Claude Code will say "Please run /login", which cannot work here
+# (see above). Point at the command that does. Only when there is genuinely no
+# credential of any kind -- keychain master (SIGNED_IN), files, or environment --
+# so this never nags a working setup.
+if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ] && [ -z "$ANTHROPIC_API_KEY" ] \
+   && [ -z "$ANTHROPIC_AUTH_TOKEN" ] && [ "$SIGNED_IN" -ne 1 ]; then
+    print -u2 -- "claude: not signed in -- run 'claude-login' (not 'claude auth login')"
+fi
+
+exec /var/jb/usr/local/lib/claude-native/claude "$@"

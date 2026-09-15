@@ -6,7 +6,7 @@ Maintainer: andi <tafilajandi@gmail.com>
 Author: Anthropic (upstream) / iOS port by andi
 Section: Development
 Priority: optional
-Depends: zsh, python3, ldid, curl, tar, coreutils, firmware (>= 15.0)
+Depends: zsh, python3, ldid, curl, tar, gzip, coreutils, firmware (>= 15.0)
 Icon: https://raw.githubusercontent.com/@REPO@/main/assets/icon.png
 Native-Depiction: https://@PAGES@/depiction.json
 SileoDepiction: https://@PAGES@/depiction.json

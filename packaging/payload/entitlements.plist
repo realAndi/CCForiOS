@@ -14,8 +14,15 @@
     <true/>
     <key>com.apple.private.skip-library-validation</key>
     <true/>
-    <key>com.apple.developer.cs.allow-jit</key>
-    <true/>
+    <!-- Deliberately NOT com.apple.developer.cs.allow-jit: it is Apple's real
+         provisioning-tied JIT entitlement, and on at least one AMFI patch level
+         (measured on a research-kernel device) claiming it on an ad-hoc signed
+         binary gets the process killed outright, silently, on the very first
+         exec -- before any output. It is also unnecessary: the shim never uses
+         iOS's real MAP_JIT/pthread_jit_write_protect_np path, only mprotect, so
+         this entitlement was never doing anything functional in the first
+         place. com.apple.security.cs.allow-jit (the macOS hardened-runtime key,
+         meaningless on iOS) is harmless and stays. -->
     <key>com.apple.security.cs.allow-jit</key>
     <true/>
     <key>com.apple.security.cs.allow-unsigned-executable-memory</key>

@@ -38,4 +38,6 @@ Description: Anthropic's Claude Code CLI, native build, patched for iOS
  .
  The shim also makes JSC's JIT work, which is not optional: iOS has no MAP_JIT
  and refuses to execute a writable page, and without JIT JavaScriptCore disables
- SharedArrayBuffer, which Claude Code needs at startup.
+ SharedArrayBuffer, which Claude Code needs at startup. The shim keeps each page
+ of the JIT pool writable or executable and repairs the fault when a thread
+ needs the other, one page at a time, so worker threads are safe.

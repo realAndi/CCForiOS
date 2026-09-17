@@ -12,11 +12,12 @@ umask 077
 # No iOS build exists upstream, so never let it replace itself.
 export DISABLE_AUTOUPDATER=1
 
-# REQUIRED. JSC's JIT pool is flipped between RW and RX with mprotect (iOS has
-# no MAP_JIT and refuses to execute a writable page). That flip is process-wide
-# where the real pthread_jit_write_protect_np is per-thread, so a background
-# compiler thread would flip the pool to RW while the main thread is executing
-# out of it -> "panic: Bus error". Compiling on the mutator thread avoids it.
+# Conservative, no longer load-bearing. The shim used to flip the whole JIT
+# pool between RW and RX for the process, and a background compiler thread doing
+# that under the main thread was "panic: Bus error". It now repairs page faults
+# one page at a time, which handles any number of writing threads: workers pass
+# with this on and off. Kept off until a long interactive session has run with
+# concurrent compilation, which writes far more often than a worker.
 export BUN_JSC_useConcurrentJIT=0
 
 # Credentials.

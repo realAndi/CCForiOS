@@ -324,17 +324,45 @@ required — the `mprotect` flip works without it.
 
 **JIT memory.**
 
-* `mmap` — when called with `MAP_JIT` (0x0800), strips the flag, maps the region
-  RW instead of RWX, and records it. This is JSC's executable pool, 64 MB.
-* `pthread_jit_write_protect_np(enabled)` — `mprotect`s every recorded region to
-  RX when `enabled` is 1 ("done writing, must be executable") and RW when 0
-  ("about to write").
-* `pthread_jit_write_protect_supported_np()` — returns 1.
+The real `pthread_jit_write_protect_np` is per thread: the thread writing code
+sees the pool read-write while every other thread keeps executing it. iOS can
+only change protection for the whole process. So the shim tracks each 16 KB
+page of JSC's 64 MB pool as RW or RX and lets faults move them:
 
-The real `mmap` is resolved with `dlsym` on an explicit libSystem handle, not
-`RTLD_DEFAULT`: the default search walks the global list and finds the shim's
-own `mmap` first. A guard aborts with `[ccios] fatal: mmap resolved to the shim
-itself` rather than recursing, should that ever happen.
+| event | what the shim does |
+|---|---|
+| `mmap` with `MAP_JIT` | strips the flag, maps the pool RW instead of RWX, records every page as RW |
+| `pthread_jit_write_protect_np(0)` | marks this thread as writing; changes no protection |
+| write fault by a writing thread | makes that one page RW and counts the thread as its writer |
+| execute fault | waits until no thread is still writing the page, makes it RX |
+| `pthread_jit_write_protect_np(1)` | drops this thread's writer counts; pages stay as they are |
+
+After a repair the faulting instruction runs again. The faults arrive as
+`SIGBUS` or `SIGSEGV`, which Bun also claims for its crash handler, so the shim
+installs its handler before `main` and interposes `sigaction` and `signal` for
+those two signals: Bun's handler is recorded and chained to for every other
+fault, and a real crash still prints Bun's `panic`. `mprotect` is interposed so
+a protection change made by anything else to a pool page updates the record.
+
+The first version of the shim `mprotect`ed the whole pool on every call, which
+is process-wide: any second thread that writes code pulled the pool out from
+under the main thread. Claude Code's bundle contains worker code. Measured on an
+iPhone 15 Pro, iOS 17.3, running test code inside each build's own runtime:
+
+| test | 2.1.273, old flip | 2.1.274, page faults |
+|---|---|---|
+| one busy worker, busy main thread | 0 of 3 survived | 15 of 15 |
+| four workers with polymorphic code | 0 of 3 | 15 of 15 |
+
+Five runs in each page-fault row had JSC's concurrent JIT turned back on.
+Speed is unchanged within noise: JSON round trips 148–164 ms against 150–151 ms,
+and property access on mixed shapes 64–78 ms against 77–85 ms.
+
+The real `mmap`, `mprotect` and `sigaction` are resolved with `dlsym` on an
+explicit libSystem handle, not `RTLD_DEFAULT`: the default search walks the
+global list and finds the shim's own definitions first. A guard aborts with
+`[ccios] fatal: cannot resolve libSystem's ...` rather than recursing, should
+that ever happen.
 
 **The two other missing symbols.**
 
@@ -346,22 +374,21 @@ itself` rather than recursing, should that ever happen.
 With the shim linked, `BUN_JSC_dumpOptions=2` reports `useJIT=true` and
 `useSharedArrayBuffer=true`.
 
-### The one load-bearing setting
+### The concurrent JIT setting
 
-The real `pthread_jit_write_protect_np` is **per-thread**; `mprotect` is
-**process-wide**. With JSC's concurrent JIT enabled, a background compiler
-thread flips the pool to RW while the main thread is executing from it, and Bun
-dies with `panic: Bus error`.
-
-The wrapper therefore sets:
+The wrapper sets:
 
 ```
 BUN_JSC_useConcurrentJIT=0
 ```
 
-Compilation happens on the mutator thread instead, so nothing flips the pool
-underneath running code. Baseline, DFG and FTL all stay enabled; only the
-concurrency does not. **Never drop this setting.**
+With the old whole-pool flip this was load-bearing: JSC's background compiler
+thread flipped the pool to RW while the main thread executed from it. The
+page-fault emulation handles any number of writing threads, and the worker tests
+pass with concurrent compilation on as well. The setting stays until a long
+interactive session has run with it off, because a compiler thread writes far
+more often than a worker does. Baseline, DFG and FTL all stay enabled either
+way; only the concurrency is off.
 
 ### Runtime environment
 
@@ -376,9 +403,9 @@ concurrency does not. **Never drop this setting.**
 and `exec`s `/var/jb/usr/local/lib/claude-native/claude`. `libshim.dylib` must
 sit beside the binary — it is loaded as `@executable_path/libshim.dylib`.
 
-Set `CCIOS_SHIM_DEBUG=1` to have the shim print the JIT pool mapping
-(`[ccios] JIT pool 0x... len=67108864 prot=...`) and any `mprotect` failure to
-stderr.
+Set `CCIOS_SHIM_DEBUG=1` to have the shim print the JIT pool mapping at
+startup (`[ccios] JIT pool 0x... len=67141632, 4098 pages of 16384 bytes`) and
+the fault counts at exit.
 
 ## What the package contains
 
@@ -784,13 +811,6 @@ Anthropic's terms, exactly as it would be on any other platform.
 
 ## Known limitations
 
-* **`BUN_JSC_useConcurrentJIT=0` is load-bearing.** The wrapper sets it. Without
-  it you get `panic: Bus error` as soon as a background compiler thread flips the
-  JIT pool while the main thread executes from it.
-* The same W^X race is theoretically reachable from Bun `worker_threads`: any
-  second JS thread compiling while another executes. Nothing in testing hit it,
-  but it is the known weak point of emulating a per-thread API with a
-  process-wide `mprotect`.
 * Only 8 bytes of Mach-O header slack remain after the added `LC_LOAD_DYLIB`
   (the command needs 56). If a future upstream build adds load commands,
   `ccios_patch.py` fails loudly (`no header room for LC_LOAD_DYLIB`) rather than
@@ -798,9 +818,10 @@ Anthropic's terms, exactly as it would be on any other platform.
 * macOS-only frameworks (AppKit, Carbon, ScreenCaptureKit, …) do not exist on
   iOS, path rewrite or not. Anything depending on them — screenshots, webview —
   will not work.
-* `mprotect` on a 64 MB region at every W^X flip is slower than the hardware
-  toggle it replaces. In practice startup is ~500 ms and a simple prompt
-  round-trips in under 3 s, so it is not a practical problem.
+* A JIT write or first execution of a page costs a fault where macOS has a
+  hardware toggle. Pages that are only executed stop faulting after their first
+  run, and in practice startup is ~500 ms and a simple prompt round-trips in
+  under 3 s.
 * Install needs ~700 MB free transiently and ~200 MB afterwards, plus a network
   connection.
 * Depends on `python3`, `ldid`, `curl`, `tar`. `/var/jb/usr/local/bin` is on the

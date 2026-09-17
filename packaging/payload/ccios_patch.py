@@ -32,13 +32,21 @@ CPU_TYPE_ARM64 = 0x0100000C
 IOS_MINOS = (15, 0, 0)
 IOS_SDK   = (17, 0, 0)
 
-# The symbols the shim provides. iOS 17.3's libSystem exports none of them.
+# The symbols the shim provides. iOS 17.3's libSystem exports none of the first
+# five. The rest exist on iOS but have to route through the shim: it repairs JIT
+# page faults in a SIGBUS/SIGSEGV handler that must run before Bun's crash
+# handler, which stays true only because Bun's sigaction() and signal() calls
+# land in the shim, and mprotect() keeps its per-page record of the JIT pool
+# true. Without them repointed, the first execution of JIT code would crash.
 SHIMMED = [
     "_mmap",
     "___clear_cache",
     "_posix_spawn_file_actions_addfchdir",
     "_pthread_jit_write_protect_np",
     "_pthread_jit_write_protect_supported_np",
+    "_sigaction",
+    "_signal",
+    "_mprotect",
 ]
 
 # Anything linked outside this set may not exist on iOS -> refuse.

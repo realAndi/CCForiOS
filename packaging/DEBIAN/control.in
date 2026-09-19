@@ -18,10 +18,16 @@ Description: Anthropic's Claude Code CLI, native build, patched for iOS
  jailbroken iOS. Upstream stopped shipping a JavaScript cli.js after 2.1.112, so
  this packages the native binary instead.
  .
- Sign in with `claude-login`, not `claude auth login`: Claude Code stores
- credentials through Bun.secrets, which cannot write on iOS, so its own login
- signs in and then silently discards the result. claude-login runs the same
- OAuth flow with the same scopes and keeps the credential refreshed.
+ Sign in with `claude-login`. Claude Code's keychain backend shells out to
+ macOS's `security` tool, which iOS does not have, so its own login signs in and
+ then silently discards the result; claude-login runs the same OAuth flow with
+ the same scopes and keeps the credential refreshed. `claude auth login` is
+ redirected to it, and /login and /logout are hidden.
+ .
+ Updates come from this repository, so Claude Code's own updater is off and its
+ update notices with it. The wrapper checks the repository for a newer package
+ instead, in the background and at most once a day; CCIOS_NO_UPDATE_CHECK=1
+ turns that off.
  .
  The credential's master copy is stored in the iOS keychain (this-device-only,
  via the ccauth-keychain helper), not as a plain-text file: the long-lived

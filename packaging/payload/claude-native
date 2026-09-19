@@ -4,13 +4,62 @@
 
 export HOME="${HOME:-/var/jb/var/mobile}"
 
+PREFIX=/var/jb
+LIB=$PREFIX/usr/local/lib/claude-native
+
 # Claude Code also writes ~/.claude.json, session transcripts and logs. Without
 # this they land with default perms; the credential file is already 0600, keep
 # the rest of what it records out of group/other as well.
 umask 077
 
-# No iOS build exists upstream, so never let it replace itself.
+# --- subcommands that cannot work here ----------------------------------
+#
+# Handled before anything else so they never pay for the credential refresh
+# below. `auth login` signs in and throws the result away (see Credentials), so
+# send it to claude-login, which runs the same OAuth flow and keeps what it
+# gets. `/login` and `/logout` inside the app are hidden instead, with
+# DISABLE_LOGIN_COMMAND below. `setup-token` is left alone: it prints a token
+# rather than storing one, so it works.
+if [ "$1" = "auth" ] && [ "$2" = "login" ]; then
+    shift 2
+    print -u2 -- "claude: 'claude auth login' cannot store a credential on iOS -- running claude-login"
+    exec $PREFIX/usr/local/bin/claude-login "$@"
+fi
+if [ "$1" = "auth" ] && [ "$2" = "logout" ]; then
+    exec $PREFIX/usr/local/bin/claude-login --logout
+fi
+
+# Upstream ships no iOS build, and these would fetch a macOS one over this
+# install. APT owns this package.
+case "$1" in
+    update|upgrade|install|--update|--upgrade)
+        print -u2 -- "claude: this build is installed by APT, not by Claude Code's updater."
+        print -u2 -- "  Upgrade it in Sileo, or: sudo apt install --only-upgrade com.andi.claude-code-native"
+        exit 1 ;;
+esac
+
+# No iOS build exists upstream, so never let it replace itself. This also
+# silences every "update available" and "auto-update failed" notice, which are
+# all gated on it. Not DISABLE_UPDATES or CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC:
+# the first prints "updates are disabled by your administrator", and the second
+# turns off feature-flag evaluation, which takes Remote Control with it.
 export DISABLE_AUTOUPDATER=1
+
+# /login and /logout run the sign-in that cannot work here; claude-login is the
+# way in, and the wrapper redirects `claude auth login` to it above.
+export DISABLE_LOGIN_COMMAND=1
+export DISABLE_LOGOUT_COMMAND=1
+
+# The Bash tool runs commands through CLAUDE_CODE_SHELL, else $SHELL when that
+# names a bash or zsh it can execute, else /bin/bash -- which a rootless
+# jailbreak does not have. zsh is a dependency of this package; bash is not, so
+# it is only used when something else has installed it.
+if [ -z "$CLAUDE_CODE_SHELL" ]; then
+    for _sh in $PREFIX/usr/bin/bash $PREFIX/usr/bin/zsh; do
+        if [ -x "$_sh" ]; then export CLAUDE_CODE_SHELL="$_sh"; break; fi
+    done
+    unset _sh
+fi
 
 # Conservative, no longer load-bearing. The shim used to flip the whole JIT
 # pool between RW and RX for the process, and a background compiler thread doing
@@ -22,8 +71,10 @@ export BUN_JSC_useConcurrentJIT=0
 
 # Credentials.
 #
-# Claude Code stores credentials through Bun.secrets, which cannot write on iOS,
-# so `claude auth login` signs in and then silently discards the result. It
+# Claude Code's keychain backend shells out to macOS's `security` tool, which
+# iOS does not have. Every save is therefore a failed read, which it classes as
+# transient and retries rather than falling back to its plaintext file, so
+# `claude auth login` signs in and then silently discards the result. It
 # reads ~/.claude/.credentials.json perfectly well though, so claude-login does
 # the OAuth flow itself and stores the master in the iOS keychain (via the
 # ccauth-keychain helper beside the binary; CCAUTH_PLAINTEXT=1 opts for a 0600
@@ -71,4 +122,77 @@ if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ] && [ -z "$ANTHROPIC_API_KEY" ] \
     print -u2 -- "claude: not signed in -- run 'claude-login' (not 'claude auth login')"
 fi
 
-exec /var/jb/usr/local/lib/claude-native/claude "$@"
+# The fullscreen renderer takes over the alternate screen and turns on mouse
+# tracking, which the terminal apps people use on a phone handle poorly -- and
+# Claude Code can switch a session to it on its own, but only while the setting
+# has never been written. So write it once, to the value that keeps the normal
+# renderer. `/tui fullscreen` still works and is then remembered, since this
+# only ever fills in a missing key. grep first: it keeps the common case out of
+# python.
+SETTINGS=$HOME/.claude/settings.json
+if ! grep -q '"tui"' "$SETTINGS" 2>/dev/null; then
+    $PREFIX/usr/bin/python3 -c '
+import json, os, sys
+p = os.path.expanduser("~/.claude/settings.json")
+try:
+    with open(p) as f:
+        s = json.load(f)
+    if not isinstance(s, dict) or "tui" in s:
+        sys.exit(0)
+except FileNotFoundError:
+    s = {}
+except Exception:
+    sys.exit(0)            # malformed or unreadable: never rewrite it
+s["tui"] = "default"
+os.makedirs(os.path.dirname(p), exist_ok=True)
+tmp = p + ".ccios.tmp"
+with open(tmp, "w") as f:
+    json.dump(s, f, indent=2)
+os.replace(tmp, p)
+' 2>/dev/null
+fi
+
+# Updates come from the repo this package was installed from, so the notice has
+# to as well: Claude Code's own updater is off, and it cannot be pointed at an
+# APT repo. The check is a cached version string, refreshed in the background at
+# most once a day -- a launch never waits on the network, and prints at most one
+# line. CCIOS_NO_UPDATE_CHECK=1 turns it off; so does a non-terminal stderr, so
+# scripts and the SDK never see it.
+CACHE=$HOME/.claude/ccios-repo-version
+if [ -z "$CCIOS_NO_UPDATE_CHECK" ] && [ -t 2 ]; then
+    installed=$(dpkg-query -W -f='${Version}' com.andi.claude-code-native 2>/dev/null)
+    if [ -n "$installed" ]; then
+        fresh=( $CACHE(Nm-1) )              # (N) no match is empty, (m-1) newer than a day
+        if (( ${#fresh} == 0 )); then
+            ( versions=$(curl -fsS --max-time 10 \
+                  https://realandi.github.io/CCForiOS/Packages 2>/dev/null \
+                | $PREFIX/usr/bin/python3 -c '
+import sys
+pkg, cur = "com.andi.claude-code-native", None
+for line in sys.stdin:
+    line = line.rstrip("\n")
+    if line.startswith("Package: "):
+        cur = line[9:]
+    elif line.startswith("Version: ") and cur == pkg:
+        print(line[9:])
+' 2>/dev/null)
+              latest=""
+              for v in ${(f)versions}; do
+                  if [ -z "$latest" ] || dpkg --compare-versions "$v" gt "$latest"; then latest=$v; fi
+              done
+              if [ -n "$latest" ]; then
+                  mkdir -p ${CACHE:h}
+                  print -r -- "$latest" > $CACHE.$$ && mv -f $CACHE.$$ $CACHE
+              fi ) >/dev/null 2>&1 &!
+        fi
+        if [ -r "$CACHE" ]; then
+            latest=$(<$CACHE)
+            if [ -n "$latest" ] && dpkg --compare-versions "$latest" gt "$installed" 2>/dev/null; then
+                print -u2 -- "claude: $latest is available (this is $installed) -- upgrade in Sileo, or:"
+                print -u2 -- "  sudo apt update && sudo apt install --only-upgrade com.andi.claude-code-native"
+            fi
+        fi
+    fi
+fi
+
+exec $LIB/claude "$@"

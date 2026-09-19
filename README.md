@@ -32,7 +32,14 @@ credentials on iOS. See [Signing in](#signing-in) for why.
 
 Requirements:
 
-* a rootless jailbreak (`/var/jb`); only Dopamine on iOS 17.3 / arm64 has been tested
+* a rootless jailbreak (`/var/jb`); tested on Dopamine: iOS 17.3 on an iPhone 15
+  Pro, and iPadOS 15.6 on an iPad Pro (A12X)
+* an A12 chip or newer. **A12-class devices** (iPhone XS/XR, the 2018 iPad Pro,
+  iPad Air 3, iPad mini 5, iPad 8th gen) **are experimental**: the official
+  build is compiled for M1-class CPUs and uses a few instructions an A12 lacks
+  (LDAPUR/STLUR, SHA3, SHA512, dot product), which the shim emulates — see
+  section 3 of `shim.c`. Older chips lack far more, and the install stops and
+  says so.
 * a network connection during install — the package does not contain Claude
   Code, it fetches it (see [What the package contains](#what-the-package-contains))
 * about 700 MB free during install, about 200 MB afterwards

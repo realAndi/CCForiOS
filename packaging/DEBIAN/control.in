@@ -41,3 +41,8 @@ Description: Anthropic's Claude Code CLI, native build, patched for iOS
  SharedArrayBuffer, which Claude Code needs at startup. The shim keeps each page
  of the JIT pool writable or executable and repairs the fault when a thread
  needs the other, one page at a time, so worker threads are safe.
+ .
+ Needs an A12 chip or newer. A12-class devices (iPhone XS/XR, 2018 iPad Pro,
+ iPad Air 3, iPad mini 5, iPad 8th gen) are experimental: the official build
+ uses a few CPU instructions they lack, which the shim emulates, and some
+ errors can occur. On an older chip the install stops and says why.

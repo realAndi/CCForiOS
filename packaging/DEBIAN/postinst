@@ -139,6 +139,11 @@ ldid -S "$LIB/libshim.dylib" 2>/dev/null || true
 # entry is what authorizes SecItem access, and without it SecItemAdd fails with
 # -34018 (measured on device). Sign the installed copy, same reasoning as above.
 ldid -S"$LIB/entitlements.plist" "$LIB/ccauth-keychain" 2>/dev/null || true
+# The stand-ins for the macOS tools Claude Code shells out to. `security` is the
+# keychain one, so it needs those same entitlements; `open` only needs to be
+# signed at all, like anything else iOS is asked to exec.
+ldid -S"$LIB/entitlements.plist" "$LIB/bin/security" 2>/dev/null || true
+ldid -S "$LIB/bin/open" 2>/dev/null || true
 cp "$LIB/libshim.dylib" "$WORK/libshim.dylib"
 chmod 755 "$WORK/claude.ios"
 say "verifying"
@@ -176,6 +181,23 @@ else
     say "  sign-in still works with CCAUTH_PLAINTEXT=1 (0600 file)"
 fi
 
+# Claude Code signs in natively only if the security stand-in can really write
+# to this device's keychain, so prove it here -- store a throwaway item, read it
+# back, delete it -- and leave a marker the wrapper reads. Without the marker it
+# keeps sending sign-in to claude-login, which does not need the keychain at all
+# (CCAUTH_PLAINTEXT=1). Removed first: an upgrade onto a device where this
+# stopped working must not keep yesterday's answer.
+rm -f "$LIB/native-login-ok"
+psvc=com.andi.claude-code-native.probe
+if "$LIB/bin/security" add-generic-password -U -a _probe -s "$psvc" -X 6f6b >/dev/null 2>&1 \
+   && [ "$("$LIB/bin/security" find-generic-password -a _probe -s "$psvc" -w 2>/dev/null)" = "ok" ]; then
+    "$LIB/bin/security" delete-generic-password -a _probe -s "$psvc" >/dev/null 2>&1 || true
+    : > "$LIB/native-login-ok"
+    say "keychain stand-in works -- 'claude auth login' and /login work as they do on a Mac"
+else
+    say "NOTE: the keychain stand-in could not store an item -- sign in with claude-login"
+fi
+
 # $HOME here is root's -- the postinst runs under sudo -- so look where a
 # credential actually lives: the keychain master first (the helper exits 0 with
 # the blob, 3 when nothing is stored), then the files under the device user's
@@ -185,9 +207,13 @@ if "$LIB/ccauth-keychain" get >/dev/null 2>&1 \
    || [ -r "$USERHOME/.claude/ccauth.json" ] || [ -r "$USERHOME/.claude/.credentials.json" ] \
    || [ -r "$USERHOME/.claude/oauth-token" ]; then
     say "installed $CC_VERSION -- run: claude"
+elif [ -e "$LIB/native-login-ok" ]; then
+    say "installed $CC_VERSION"
+    say "Sign in first:  claude auth login   (or /login once it is running)"
 else
     say "installed $CC_VERSION"
     say "Sign in first:  claude-login"
-    say "  (not 'claude auth login' -- that cannot save credentials on iOS)"
+    say "  (this device's keychain refused the stand-in, so 'claude auth login'"
+    say "   would sign in and then lose it)"
 fi
 exit 0

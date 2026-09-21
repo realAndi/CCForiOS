@@ -7,6 +7,9 @@ BIN=$PREFIX/usr/local/bin
 if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
     # The binary is fetched at install time, so dpkg does not know about it.
     rm -f "$LIB/claude" "$LIB/claude.previous"
+    # Written by the postinst after probing the keychain, so dpkg does not know
+    # about it.
+    rm -f "$LIB/native-login-ok"
     # Hand `claude` back to whatever owned it before us.
     if [ -L "$BIN/claude" ]; then
         rm -f "$BIN/claude"

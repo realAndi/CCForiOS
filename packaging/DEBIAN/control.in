@@ -6,7 +6,7 @@ Maintainer: andi <tafilajandi@gmail.com>
 Author: Anthropic (upstream) / iOS port by andi
 Section: Development
 Priority: optional
-Depends: zsh, python3, ldid, curl, tar, gzip, coreutils, firmware (>= 15.0)
+Depends: zsh, python3, ldid, curl, tar, gzip, coreutils, uikittools, firmware (>= 15.0)
 Icon: https://raw.githubusercontent.com/@REPO@/main/assets/icon.png
 Native-Depiction: https://@PAGES@/depiction.json
 SileoDepiction: https://@PAGES@/depiction.json
@@ -18,11 +18,16 @@ Description: Anthropic's Claude Code CLI, native build, patched for iOS
  jailbroken iOS. Upstream stopped shipping a JavaScript cli.js after 2.1.112, so
  this packages the native binary instead.
  .
- Sign in with `claude-login`. Claude Code's keychain backend shells out to
- macOS's `security` tool, which iOS does not have, so its own login signs in and
- then silently discards the result; claude-login runs the same OAuth flow with
- the same scopes and keeps the credential refreshed. `claude auth login` is
- redirected to it, and /login and /logout are hidden.
+ Sign in with `claude auth login` or /login, as on a Mac. Claude Code reaches
+ the keychain by shelling out to macOS's `security`, and opens links with
+ `open`; iOS has neither, so this package ships a stand-in for each -- the
+ keychain one backed by the real iOS keychain, the other by uiopen. Without the
+ first, a sign-in used to be discarded silently the moment it succeeded.
+ .
+ `claude-login` is still there for a device whose keychain refuses (the install
+ probes it and says so), and for anyone already using it: while its credential
+ exists it owns sign-in, keeps the token refreshed, and the native commands
+ defer to it. `claude-login --logout` removes every copy.
  .
  Updates come from this repository, so Claude Code's own updater is off and its
  update notices with it. The wrapper checks the repository for a newer package

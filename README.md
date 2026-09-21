@@ -23,12 +23,13 @@ Sileo → Sources → **+** → `https://reallyitsandi.com/repo/`, then install
 **Claude Code (native)**. Then sign in — once:
 
 ```sh
-claude-login
+claude auth login
 claude
 ```
 
-Use `claude-login`, **not** `claude auth login`; the latter cannot save
-credentials on iOS. See [Signing in](#signing-in) for why.
+Sign-in works as it does on a Mac. `claude-login` is still shipped, and is the
+way in on a device whose keychain refuses the stand-in described in
+[Signing in](#signing-in) — the install says which one you have.
 
 Requirements:
 
@@ -43,9 +44,9 @@ Requirements:
 * a network connection during install — the package does not contain Claude
   Code, it fetches it (see [What the package contains](#what-the-package-contains))
 * about 700 MB free during install, about 200 MB afterwards
-* `zsh`, `python3`, `ldid`, `curl`, `tar`, `coreutils` — declared as
-  dependencies, so Sileo offers to install anything missing before it installs
-  this. **Node is not needed**: the Claude Code binary is Bun-compiled and
+* `zsh`, `python3`, `ldid`, `curl`, `tar`, `coreutils`, `uikittools` (for
+  `uiopen`, which is how links open) — declared as dependencies, so Sileo offers
+  to install anything missing before it installs this. **Node is not needed**: the Claude Code binary is Bun-compiled and
   self-contained, and `claude-login` uses only the Python standard library.
   The `postinst` also checks each tool by name before doing any work, so a
   hand-installed `.deb` fails immediately with what is missing rather than
@@ -97,23 +98,40 @@ measured).
 ## Signing in
 
 ```sh
-claude-login
+claude auth login
 ```
 
-A URL appears — open it in Safari, approve, paste the code back. That is the
-whole flow, and it gets the **full scope set**, so Remote Control, MCP servers
-and file upload all work.
+A URL appears — open it in Safari (the package's `open` hands it to uiopen, so
+it opens by itself), approve, paste the code back. `/login` inside the app works
+the same way.
+
+That works because of a **stand-in for `security`**. Claude Code reaches the
+keychain by shelling out to macOS's `security(1)`, which iOS does not have, so
+every save failed — and, because a failed save looks to it like a failed *read*,
+it classed the failure as transient and never fell back to its plaintext file.
+That is why a sign-in used to be discarded the moment it succeeded. The package
+now ships `bin/security`, a small binary implementing the generic-password
+commands Claude Code uses against the real iOS keychain (see `security.c`), and
+`bin/open`, which forwards to uiopen (`open.c`). Both are compiled, not scripts:
+Bun on iOS cannot `posix_spawn` a `#!` file at all, which is why an earlier PATH
+shim for `security` was never even invoked.
+
+The install probes the keychain through that stand-in and prints which sign-in
+this device gets. If it fails, use `claude-login`, whose OAuth flow needs no
+keychain at all (`CCAUTH_PLAINTEXT=1` keeps its master in a 0600 file).
 
 ```sh
+claude-login              # the fallback flow; full scopes
 claude-login --status     # what is stored, and when it expires
 claude-login --refresh    # force a refresh now
-claude-login --logout     # delete the stored credential
+claude-login --logout     # delete every copy, including Claude Code's own
 ```
 
-**Do not use `claude auth login` on iOS.** It completes the browser flow and
-then silently discards the result, so the next run is signed out again. Claude
-Code stores credentials through `Bun.secrets` — Bun's own store, compiled into
-the binary — which cannot write on iOS.
+While a `claude-login` master exists it **owns** sign-in: it republishes the
+access token into Claude Code's keychain item before every launch, and
+`claude auth login`, `/login` and `/logout` defer to it — two things rotating
+the same refresh token would sign each other out. Remove it with
+`claude-login --logout` to hand sign-in back to Claude Code itself.
 
 Things that look like the cause and are not, each ruled out by measurement:
 
@@ -140,16 +158,18 @@ for security — which costs Remote Control. The wrapper still honours one at
 ### Where the credential is stored
 
 Claude Code treats `~/.claude/.credentials.json` as a **legacy** path: once it
-reads a valid credential from there it migrates it into `Bun.secrets` and
-deletes the original. On iOS the write half of that silently fails and the
-delete half succeeds, so a credential written straight to that file survives
-exactly one run — which is what made a copied desktop credential look like it
-"expired". An invalid credential is left alone, because the migration never gets
-that far, which is why the effect looks intermittent.
+reads a valid credential from there it migrates it into its own keychain item
+(`Claude Code-credentials`, keyed by the login name) and deletes the original.
+Before this package shipped a `security` stand-in the write half silently failed
+and the delete half succeeded, so a credential written straight to that file
+survived exactly one run — which is what made a copied desktop credential look
+like it "expired". An invalid credential is left alone, because the migration
+never gets that far, which is why the effect looked intermittent.
 
-So `claude-login` keeps its own master copy, and the wrapper re-creates
-`.credentials.json` from it before every launch; Claude Code can delete its copy
-as often as it likes. The master lives in the **iOS keychain**, through the
+So `claude-login` keeps its own master copy, and the wrapper republishes from it
+before every launch — into `.credentials.json` *and* into Claude Code's keychain
+item, which it now reads first. Claude Code can delete either copy as often as
+it likes. The master lives in the **iOS keychain**, through the
 small `ccauth-keychain` helper installed next to the binary: a generic-password
 item, `ThisDeviceOnly`, authorized by the same entitlements the binary carries.
 Two properties fall out of that, both of which the old plain-text file lacked:
@@ -429,7 +449,8 @@ the fault counts at exit.
 | `entitlements.plist` | `/var/jb/usr/local/lib/claude-native/` | JIT entitlements (`dynamic-codesigning`, `com.apple.security.cs.allow-jit`, `get-task-allow`, ...) and the keychain access group, for `ldid` |
 | `version.env` | `/var/jb/usr/local/lib/claude-native/` | upstream version, pinned SHA-256s, download URLs |
 | `claude-native` | `/var/jb/usr/local/bin/` | the wrapper |
-| `claude-login` | `/var/jb/usr/local/bin/` | the sign-in command |
+| `claude-login` | `/var/jb/usr/local/bin/` | the fallback sign-in command |
+| `bin/security`, `bin/open` | `/var/jb/usr/local/lib/claude-native/` | stand-ins for the two macOS tools Claude Code shells out to; the wrapper puts them on PATH |
 
 The binary itself is produced at install time by `packaging/DEBIAN/postinst`:
 

@@ -76,6 +76,8 @@ jobs:
       payload-paths: |
         packaging/payload/libshim.dylib
         packaging/payload/ccauth-keychain
+        packaging/payload/security
+        packaging/payload/open
         packaging/payload/PAYLOAD.version
     secrets:
       # Its own key, not the one that signs reallyitsandi.com and not gh-port's,

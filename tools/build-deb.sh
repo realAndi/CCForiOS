@@ -51,6 +51,10 @@ command -v dpkg-deb >/dev/null || { echo "need dpkg-deb (brew install dpkg)"; ex
     echo "missing packaging/payload/libshim.dylib -- run tools/build-payload.sh on macOS first"; exit 1; }
 [ -f "$PAYLOAD/ccauth-keychain" ] || {
     echo "missing packaging/payload/ccauth-keychain -- run tools/build-payload.sh on macOS first; in CI that means it must be listed in the workflow's payload-paths"; exit 1; }
+for _helper in security open; do
+    [ -f "$PAYLOAD/$_helper" ] || {
+        echo "missing packaging/payload/$_helper -- run tools/build-payload.sh on macOS first; in CI that means it must be listed in the workflow's payload-paths"; exit 1; }
+done
 [ -f "$PAYLOAD/PAYLOAD.version" ] || {
     echo "missing packaging/payload/PAYLOAD.version -- run tools/build-payload.sh on macOS first"; exit 1; }
 
@@ -146,9 +150,14 @@ mkdir -p "$STAGE/DEBIAN" "$LIB" "$BIN"
 
 install -m 755 "$ROOT/packaging/payload/libshim.dylib"      "$LIB/libshim.dylib"
 install -m 755 "$ROOT/packaging/payload/ccauth-keychain"    "$LIB/ccauth-keychain"
+mkdir -p "$LIB/bin"
+install -m 755 "$ROOT/packaging/payload/security"           "$LIB/bin/security"
+install -m 755 "$ROOT/packaging/payload/open"               "$LIB/bin/open"
 install -m 644 "$ROOT/packaging/payload/ccios_patch.py"     "$LIB/ccios_patch.py"
 install -m 644 "$ROOT/packaging/payload/shim.c"             "$LIB/shim.c"
 install -m 644 "$ROOT/packaging/payload/ccauth-keychain.c"  "$LIB/ccauth-keychain.c"
+install -m 644 "$ROOT/packaging/payload/security.c"         "$LIB/security.c"
+install -m 644 "$ROOT/packaging/payload/open.c"             "$LIB/open.c"
 install -m 644 "$ROOT/packaging/payload/entitlements.plist" "$LIB/entitlements.plist"
 install -m 644 "$ROOT/packaging/payload/ccauth.py"          "$LIB/ccauth.py"
 install -m 755 "$ROOT/packaging/payload/claude-native"      "$BIN/claude-native"

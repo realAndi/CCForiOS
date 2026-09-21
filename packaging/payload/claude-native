@@ -12,21 +12,47 @@ LIB=$PREFIX/usr/local/lib/claude-native
 # the rest of what it records out of group/other as well.
 umask 077
 
-# --- subcommands that cannot work here ----------------------------------
+# The stand-ins for the two macOS tools Claude Code shells out to by name and
+# iOS does not have: `security` (its keychain backend) and `open` (every URL it
+# offers to open). PATH, because that is how it looks for them. See security.c
+# and open.c.
+export PATH="$LIB/bin:$PATH"
+
+# --- sign-in ------------------------------------------------------------
 #
-# Handled before anything else so they never pay for the credential refresh
-# below. `auth login` signs in and throws the result away (see Credentials), so
-# send it to claude-login, which runs the same OAuth flow and keeps what it
-# gets. `/login` and `/logout` inside the app are hidden instead, with
-# DISABLE_LOGIN_COMMAND below. `setup-token` is left alone: it prints a token
-# rather than storing one, so it works.
-if [ "$1" = "auth" ] && [ "$2" = "login" ]; then
-    shift 2
-    print -u2 -- "claude: 'claude auth login' cannot store a credential on iOS -- running claude-login"
-    exec $PREFIX/usr/local/bin/claude-login "$@"
+# Two ways in, and whoever holds the credential handles it.
+#
+# Native: with bin/security working, `claude auth login` stores what it gets and
+# refreshes it in place, exactly as on a Mac. The postinst probes the keychain
+# through that stand-in at install time and leaves a marker, so a device where
+# it does not work never silently loses a sign-in.
+#
+# claude-login: the OAuth flow this package has always shipped, whose master
+# lives in its own keychain item. While that master exists it owns the
+# credential -- publishing it into Claude Code's item before every launch -- so
+# the native commands are redirected to it and /login and /logout hidden;
+# a native login on top would fight it for the rotating refresh token.
+#
+# `setup-token` is left alone either way: it prints a token rather than storing
+# one, so it works.
+NATIVE_LOGIN=0
+if [ -e "$LIB/native-login-ok" ] && [ ! -e "$HOME/.claude/ccauth.json" ]; then
+    NATIVE_LOGIN=1
 fi
-if [ "$1" = "auth" ] && [ "$2" = "logout" ]; then
-    exec $PREFIX/usr/local/bin/claude-login --logout
+
+if [ "$NATIVE_LOGIN" -ne 1 ]; then
+    if [ "$1" = "auth" ] && [ "$2" = "login" ]; then
+        shift 2
+        print -u2 -- "claude: this install signs in with claude-login -- running it"
+        exec $PREFIX/usr/local/bin/claude-login "$@"
+    fi
+    # Logout is redirected even when the native path works: it has to remove
+    # claude-login's master too, or the next launch publishes it straight back.
+    if [ "$1" = "auth" ] && [ "$2" = "logout" ]; then
+        exec $PREFIX/usr/local/bin/claude-login --logout
+    fi
+    export DISABLE_LOGIN_COMMAND=1
+    export DISABLE_LOGOUT_COMMAND=1
 fi
 
 # Upstream ships no iOS build, and these would fetch a macOS one over this
@@ -44,11 +70,6 @@ esac
 # the first prints "updates are disabled by your administrator", and the second
 # turns off feature-flag evaluation, which takes Remote Control with it.
 export DISABLE_AUTOUPDATER=1
-
-# /login and /logout run the sign-in that cannot work here; claude-login is the
-# way in, and the wrapper redirects `claude auth login` to it above.
-export DISABLE_LOGIN_COMMAND=1
-export DISABLE_LOGOUT_COMMAND=1
 
 # The Bash tool runs commands through CLAUDE_CODE_SHELL, else $SHELL when that
 # names a bash or zsh it can execute, else /bin/bash -- which a rootless
@@ -69,20 +90,18 @@ fi
 # concurrent compilation, which writes far more often than a worker.
 export BUN_JSC_useConcurrentJIT=0
 
-# Credentials.
+# Credentials -- the claude-login half.
 #
-# Claude Code's keychain backend shells out to macOS's `security` tool, which
-# iOS does not have. Every save is therefore a failed read, which it classes as
-# transient and retries rather than falling back to its plaintext file, so
-# `claude auth login` signs in and then silently discards the result. It
-# reads ~/.claude/.credentials.json perfectly well though, so claude-login does
-# the OAuth flow itself and stores the master in the iOS keychain (via the
-# ccauth-keychain helper beside the binary; CCAUTH_PLAINTEXT=1 opts for a 0600
-# file instead). This refreshes the access token before it expires, then
-# re-creates .credentials.json -- carrying the access token only; the long-lived
-# refresh token never touches the file system. Claude Code deletes its copy
-# after reading a valid one, so without this a sign-in would last exactly one
-# run.
+# Only does anything when claude-login holds a master (see sign-in above).
+# claude-login runs the OAuth flow itself and keeps that master in its own
+# keychain item, via ccauth-keychain; CCAUTH_PLAINTEXT=1 opts for a 0600 file
+# instead, which is what a device with no usable keychain falls back to. This
+# refreshes the access token before it expires and republishes it -- into
+# ~/.claude/.credentials.json and into Claude Code's own keychain item, which it
+# reads first. Both copies carry the access token only: the long-lived refresh
+# token stays in the master, so nothing else can rotate it out from under us.
+# Claude Code deletes .credentials.json once it has migrated it, which is why
+# this runs before every launch.
 #
 # Deliberately quiet and non-fatal: if the refresh fails, start anyway. The
 # current token may still be valid, and an expired one produces a better error
@@ -119,7 +138,17 @@ fi
 # so this never nags a working setup.
 if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ] && [ -z "$ANTHROPIC_API_KEY" ] \
    && [ -z "$ANTHROPIC_AUTH_TOKEN" ] && [ "$SIGNED_IN" -ne 1 ]; then
-    print -u2 -- "claude: not signed in -- run 'claude-login' (not 'claude auth login')"
+    # Claude Code's own item counts as signed in: with bin/security working, a
+    # native `claude auth login` puts one there and this module knows nothing
+    # about it.
+    if ! $LIB/bin/security find-generic-password \
+            -a "${USER:-$(id -un)}" -s "Claude Code-credentials" -w >/dev/null 2>&1; then
+        if [ "$NATIVE_LOGIN" -eq 1 ]; then
+            print -u2 -- "claude: not signed in -- run 'claude auth login' (or claude-login)"
+        else
+            print -u2 -- "claude: not signed in -- run 'claude-login' (not 'claude auth login')"
+        fi
+    fi
 fi
 
 # The fullscreen renderer takes over the alternate screen and turns on mouse

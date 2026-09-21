@@ -51,6 +51,7 @@ import fcntl
 import hashlib
 import json
 import os
+import pwd
 import secrets
 import subprocess
 import time
@@ -78,11 +79,14 @@ SCOPES = [
 HOME = os.path.expanduser("~")
 
 # Claude Code treats ~/.claude/.credentials.json as a *legacy* file: once it has
-# read a valid credential from there it migrates it into Bun.secrets and deletes
-# the original. On iOS the write half of that silently fails and the delete half
-# succeeds, so a credential written straight to .credentials.json survives
-# exactly one run. (An invalid one is left alone -- the migration never gets
-# that far -- which is why the effect looks intermittent.)
+# read a valid credential from there it migrates it into its keychain item and
+# deletes the original. Its keychain backend shells out to macOS's `security`,
+# which iOS does not have, so before this package shipped one the write half
+# silently failed and the delete half succeeded -- a credential written straight
+# to .credentials.json survived exactly one run. (An invalid one is left alone --
+# the migration never gets that far -- which is why the effect looked
+# intermittent.) With the stand-in on PATH the migration now succeeds, so the
+# master is published to that item as well as to the file; see publish().
 #
 # So we own the master (in the keychain, see below) and re-materialise
 # .credentials.json before every launch. Claude Code may delete its copy as
@@ -99,6 +103,14 @@ OAUTH_TOKEN = os.path.join(HOME, ".claude", "oauth-token")
 # keeps the item on the data volume, so the credential is no longer at home in
 # the jailbreak root. CCAUTH_PLAINTEXT=1 is the escape hatch.
 HELPER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ccauth-keychain")
+
+# Claude Code's own credential store: a generic password under this service,
+# keyed by the login name, read and written through `security`. The package
+# ships a stand-in for that tool (bin/security beside this file), which is what
+# makes the native sign-in work; the same stand-in lets us keep its item in step
+# with the master below.
+CC_SERVICE = "Claude Code-credentials"
+SECURITY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bin", "security")
 USE_KEYCHAIN = os.environ.get("CCAUTH_PLAINTEXT") != "1"
 
 # Cloudflare rejects a request that does not look like the CLI (403, code 1010).
@@ -290,12 +302,40 @@ def materialise(creds=None):
     oauth.pop("refreshToken", None)
     oauth.pop("refreshTokenExpiresAt", None)
     published["claudeAiOauth"] = oauth
+    publish_to_keychain(published)
     try:
         if _read_file(CRED) == published:
             return False                      # already current, leave it alone
         _write_atomic(CRED, published)
         return True
     except OSError:
+        return False
+
+
+def _cc_account():
+    """What Claude Code keys its keychain item by: $USER, else the passwd name."""
+    return os.environ.get("USER") or pwd.getpwuid(os.getuid()).pw_name
+
+
+def publish_to_keychain(published):
+    """Put the same published credential in Claude Code's own keychain item.
+
+    Once Claude Code can reach a working `security` it migrates .credentials.json
+    into that item and reads the item first from then on, so publishing only to
+    the file would hand it a token that goes stale while ours stays fresh. Best
+    effort: a missing helper, an older Claude Code, or a keychain that refuses
+    all leave the file mirror doing its old job.
+    """
+    if not os.path.exists(SECURITY):
+        return False
+    blob = json.dumps(published).encode()
+    try:
+        r = subprocess.run(
+            [SECURITY, "add-generic-password", "-U",
+             "-a", _cc_account(), "-s", CC_SERVICE, "-X", blob.hex()],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
+        return r.returncode == 0
+    except (OSError, subprocess.SubprocessError):
         return False
 
 
@@ -328,6 +368,15 @@ def logout():
             _kc("del")
             removed.append("keychain item (com.andi.claude-code-native.ccauth)")
         except AuthError:
+            pass
+    if os.path.exists(SECURITY):
+        try:
+            r = subprocess.run(
+                [SECURITY, "delete-generic-password", "-a", _cc_account(), "-s", CC_SERVICE],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
+            if r.returncode == 0:
+                removed.append('keychain item ("%s")' % CC_SERVICE)
+        except (OSError, subprocess.SubprocessError):
             pass
     for p in (STORE, CRED, LOCK, OAUTH_TOKEN):
         try:

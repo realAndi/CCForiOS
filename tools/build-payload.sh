@@ -51,6 +51,24 @@ xcrun --sdk iphoneos clang -arch arm64 -miphoneos-version-min=15.0 \
     "$PAYLOAD/ccauth-keychain.c" -o "$PAYLOAD/ccauth-keychain"
 ldid -S"$PAYLOAD/entitlements.plist" "$PAYLOAD/ccauth-keychain"
 
+# The two macOS tools Claude Code shells out to by name that iOS does not have.
+# `security` needs the same entitlements as ccauth-keychain -- it is the same
+# keychain, reached the same way -- while `open` just execs uiopen and needs
+# nothing but a signature. Compiled, not scripts: Bun on iOS cannot spawn a #!
+# file at all (EPERM), which is why a PATH shim for `security` was missed the
+# first time this was investigated.
+echo "==> building the security and open stand-ins"
+xcrun --sdk iphoneos clang -arch arm64 -miphoneos-version-min=15.0 \
+    -isysroot "$(xcrun --sdk iphoneos --show-sdk-path)" \
+    -framework Security -framework CoreFoundation -O2 -Wall \
+    "$PAYLOAD/security.c" -o "$PAYLOAD/security"
+ldid -S"$PAYLOAD/entitlements.plist" "$PAYLOAD/security"
+
+xcrun --sdk iphoneos clang -arch arm64 -miphoneos-version-min=15.0 \
+    -isysroot "$(xcrun --sdk iphoneos --show-sdk-path)" \
+    -O2 -Wall "$PAYLOAD/open.c" -o "$PAYLOAD/open"
+ldid -S "$PAYLOAD/open"
+
 # build-shim.sh only warns when ldid is missing, so that it stays runnable on
 # the device where signing may be done separately. That makes this assertion the
 # thing standing between an unsigned dylib and a package that cannot load on
